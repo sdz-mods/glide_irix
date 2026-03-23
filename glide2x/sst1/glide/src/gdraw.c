@@ -56,6 +56,7 @@
  * Fixed Watcom Assembly calling bug
 **
 */
+#include <stdio.h>
 #include <3dfx.h>
 
 #define FX_DLL_DEFINITION
@@ -342,6 +343,10 @@ GR_ENTRY(grDrawTriangle, void, ( const GrVertex *a, const GrVertex *b, const GrV
   GR_BEGIN_NOFIFOCHECK("grDrawTriangle",92);
   GDBG_INFO_MORE((gc->myLevel,"(0x%x,0x%x,0x%x)\n",a,b,c));
   GR_CHECK_F(myName, !a || !b || !c, "NULL pointer passed");
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  { static int _dt_n = 0; if (_dt_n < 4) { _dt_n++;
+    fprintf(stderr, "MARK: grDrawTriangle #%d\n", _dt_n); } }
+#endif
 
   /* Silly warning killer */
   if ( 0 ) goto all_done;

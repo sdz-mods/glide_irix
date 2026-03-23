@@ -361,6 +361,9 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitVideo(FxU32 *sstbase,
         INIT_PRINTF(("sst1InitVideo(): Enabling Video Clock...\n"));
         PCICFG_WR(SST1_PCI_VCLK_ENABLE, 0x0);
     }
+#ifdef GLIDE_IRIX_DBG_INIT
+    fprintf(stderr, "vidInit: A (after VCLK_ENABLE)\n"); fflush(stderr);
+#endif
 
     /* Setup SST video timing registers */
     envp = GETENV(("SST_HSYNC"));
@@ -405,11 +408,17 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitVideo(FxU32 *sstbase,
         sstVideoRez->tilesInX_Over2 = vtmp;
     }
 
+#ifdef GLIDE_IRIX_DBG_INIT
+    fprintf(stderr, "vidInit: B (timing regs done)\n"); fflush(stderr);
+#endif
     /* Setup SST memory mapper for desired resolution */
     if(sst1CurrentBoard->fbiMemSize == 4)
-        sst1InitSetResolution(sstbase, sstVideoRez, 1); 
+        sst1InitSetResolution(sstbase, sstVideoRez, 1);
     else
-        sst1InitSetResolution(sstbase, sstVideoRez, 0); 
+        sst1InitSetResolution(sstbase, sstVideoRez, 0);
+#ifdef GLIDE_IRIX_DBG_INIT
+    fprintf(stderr, "vidInit: C (SetResolution done)\n"); fflush(stderr);
+#endif
 
     if((GETENV(("SST_TRIPLE_BUFFER"))) ||
        (sst1CurrentBoard->fbiTripleBufferingEnabled == FXTRUE)) {
@@ -418,8 +427,14 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitVideo(FxU32 *sstbase,
     }
 
     /* Calculate graphics clock frequency */
+#ifdef GLIDE_IRIX_DBG_INIT
+    fprintf(stderr, "vidInit: D (before CalcGrxClk)\n"); fflush(stderr);
+#endif
     if(sst1InitCalcGrxClk(sstbase) == FXFALSE)
         return(FXFALSE);
+#ifdef GLIDE_IRIX_DBG_INIT
+    fprintf(stderr, "vidInit: E (CalcGrxClk done)\n"); fflush(stderr);
+#endif
 
     /* Setup video fifo */
     /* NOTE: Lower values for the video fifo threshold improve video fifo */
@@ -696,23 +711,41 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitVideo(FxU32 *sstbase,
     sst1CurrentBoard->tmuInit1[2] = (sst1CurrentBoard->tmuInit1[2] &
         ~SST_TEX_TF_CLK_DEL_ADJ) | (tf2_clk_del<<SST_TEX_TF_CLK_DEL_ADJ_SHIFT);
 
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+    fprintf(stderr, "vidInit: F (before TREX writes)\n"); fflush(stderr);
+#endif
     ISET(SST_TREX(sst,0)->trexInit1, sst1CurrentBoard->tmuInit1[0]);
     /* sst1InitIdleFBINoNOP(sstbase); */
     /* Can't use sst1InitIdleFbi because changing the tf clock delay may */
     /* incorrectly put data into the TREX-to-FBI fifo */
     for(n=0; n<100; n++) sst1InitReturnStatus(sstbase);
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+    fprintf(stderr, "vidInit: F1 (TREX0 done)\n"); fflush(stderr);
+#endif
     ISET(SST_TREX(sst,1)->trexInit1, sst1CurrentBoard->tmuInit1[1]);
     for(n=0; n<100; n++) sst1InitReturnStatus(sstbase);
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+    fprintf(stderr, "vidInit: F2 (TREX1 done)\n"); fflush(stderr);
+#endif
     ISET(SST_TREX(sst,2)->trexInit1, sst1CurrentBoard->tmuInit1[2]);
     for(n=0; n<100; n++) sst1InitReturnStatus(sstbase);
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+    fprintf(stderr, "vidInit: G (TREX writes done)\n"); fflush(stderr);
+#endif
 
     /* Setup graphics clock */
     if(sst1InitGrxClk(sstbase) == FXFALSE)
         return(FXFALSE);
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+    fprintf(stderr, "vidInit: H (GrxClk done)\n"); fflush(stderr);
+#endif
 
     /* Setup video mode */
     if(sst1InitSetVidMode(sstbase, video16BPP) == FXFALSE)
         return(FXFALSE);
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+    fprintf(stderr, "vidInit: I (SetVidMode done)\n"); fflush(stderr);
+#endif
 
     /* Adjust Video Clock */
 #ifndef DIRECTX
@@ -742,9 +775,15 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitVideo(FxU32 *sstbase,
     }
 #endif
 
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+    fprintf(stderr, "vidInit: J (SetVidClk done, waiting for stabilize)\n"); fflush(stderr);
+#endif
     /* Wait for video clock to stabilize */
     for(n=0; n<200000; n++)
         sst1InitReturnStatus(sstbase);
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+    fprintf(stderr, "vidInit: K (wait done)\n"); fflush(stderr);
+#endif
 
     /* Run Video Reset Module */
     ISET(sst->fbiInit1, IGET(sst->fbiInit1) & ~SST_VIDEO_RESET);
@@ -754,6 +793,9 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitVideo(FxU32 *sstbase,
 
     sst1InitIdleFBINoNOP(sstbase);
 
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+    fprintf(stderr, "vidInit: L (before clear screen)\n"); fflush(stderr);
+#endif
     if(!GETENV(("SST_VIDEO_NOCLEAR"))) {
         /* Clear Screen */
         FxU32 clearColor = 0x0;
@@ -776,6 +818,9 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitVideo(FxU32 *sstbase,
     } else
         INIT_PRINTF(("sst1InitVideo(): Not Clearing Frame Buffer(s)...\n"));
 
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+    fprintf(stderr, "vidInit: M (clear screen done)\n"); fflush(stderr);
+#endif
     sst1InitVgaPassCtrl(sstbase, 0);
 
     if(GETENV(("SST_VIDEO_DISABLE"))) {
@@ -1100,6 +1145,10 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitSetGrxClk(FxU32 *sstbase,
 
     /* Fix problem where first Texture downloads to TMU weren't being
        received properly */
+#ifdef GLIDE_IRIX_DBG_INIT
+    fprintf(stderr, "SetGrxClk: tex write sstbase=%p addr=%p\n",
+            (void*)sstbase, (void*)(0xf00000 + (long) sstbase)); fflush(stderr);
+#endif
     ISET(*(long *) (0xf00000 + (long) sstbase), 0xdeadbeef);
 
     if(sst1InitReturnStatus(sstbase) & SST_TREX_BUSY) {

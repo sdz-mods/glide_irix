@@ -63,7 +63,11 @@
 **
 */
 
+#include <stdio.h>
 #include <string.h>
+#if defined(__sgi__) || defined(IRIX)
+#include <unistd.h>
+#endif
 #include <3dfx.h>
 #include <glidesys.h>
 
@@ -128,17 +132,38 @@ void
 _grReCacheFifo( FxI32 n )
 {
   GR_DCL_GC;
-  gc->state.fifoFree = ((grSstStatus() >> SST_MEMFIFOLEVEL_SHIFT) & 0xffff)<<2;
-  gc->state.fifoFree -= gc->hwDep.sst1Dep.swFifoLWM + n;
+  FxU32 rawStatus = grSstStatus();
+  FxI32 level = (FxI32)((rawStatus >> SST_MEMFIFOLEVEL_SHIFT) & 0xffff);
+  gc->state.fifoFree = (level << 2) - gc->hwDep.sst1Dep.swFifoLWM - n;
 }
 
 FxI32 GR_CDECL
 _grSpinFifo( FxI32 n )
 {
   GR_DCL_GC;
+  FxU32 spins = 0;
   do {
     _GlideRoot.stats.fifoSpins++;
+#if defined(__sgi__) || defined(IRIX)
+    /* IRIX/MACE: sleep between polls to prevent PCI RETRY storm.
+     * Rapid reads of hw->status while the Voodoo1 FIFO is full generate
+     * RETRY responses; too many in succession put MACE in a fault state
+     * that stops all PCI transactions.  usleep(1) breaks the tight loop
+     * and gives the Voodoo1 time to drain its FIFO before the next poll. */
+    usleep(1);
+#endif
     _grReCacheFifo( n );
+    if (++spins >= 10000000UL) {
+      FxU32 rawStatus = grSstStatus();
+      FxI32 level = (FxI32)((rawStatus >> SST_MEMFIFOLEVEL_SHIFT) & 0xffff);
+      fprintf(stderr,
+        "FIFO_HANG: _grSpinFifo stuck n=%d fifoFree=%d "
+        "rawStatus=0x%08x level=%d swFifoLWM=%d\n",
+        (int)n, (int)gc->state.fifoFree,
+        (unsigned)rawStatus, (int)level,
+        (int)gc->hwDep.sst1Dep.swFifoLWM);
+      spins = 0;
+    }
   } while (gc->state.fifoFree < 0);
   return gc->state.fifoFree;
 }

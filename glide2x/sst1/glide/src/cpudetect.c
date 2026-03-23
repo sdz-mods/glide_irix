@@ -34,6 +34,7 @@ int _cpu_detect_asm() {
   return 5;
 }
 
+#if !defined(__sgi__) && !defined(__mips__)
 void single_precision_asm() {
   asm("push %eax \n fnclex \n fstcw (%esp) \n movl (%esp), %eax \n "
       "and $0x0000fcff, %eax \n movl %eax, (%esp) \n fldcw (%esp) \n pop %eax");
@@ -45,4 +46,5 @@ void double_precision_asm() {
       "and $0x0000fcff, %eax \n or $0x000002ff, %eax \n mov %eax, (%esp) \n "
       "fldcw (%esp) \n pop %eax");
 }
+#endif
 

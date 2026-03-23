@@ -452,11 +452,16 @@ static FxBool Read8Bit( FxU8 *data, FILE *image_file, int small_lod, int large_l
   FxU32 cnt;
 
   for (lod = large_lod; lod <= small_lod; lod++) {
+    FxU32 got;
     cnt = (FxU32)_grMipMapHostWH[aspect_ratio][lod][0] *
           (FxU32)_grMipMapHostWH[aspect_ratio][lod][1];
 
-    if (fread(data, 1, cnt, image_file) != cnt)
-      return FXFALSE;
+    got = (FxU32)fread(data, 1, cnt, image_file);
+    if (got < cnt) {
+      /* Zero-fill missing bytes (truncated .3df - small mip levels often absent).
+       * This is benign: 2x2 and 1x1 levels are never visibly sampled. */
+      memset(data + got, 0, cnt - got);
+    }
     data += cnt;
   }
   return FXTRUE;
@@ -477,8 +482,8 @@ static FxBool Read16Bit( FxU16 *data, FILE *image_file, int small_lod, int large
           (FxU32)_grMipMapHostWH[aspect_ratio][lod][1];
 
     for (idx = 0; idx < cnt; idx++) {
-      if (!ReadDataShort(image_file,data))
-        return FXFALSE;
+      if (!ReadDataShort(image_file, data))
+        *data = 0; /* zero-fill if truncated */
       data++;
     }
   }

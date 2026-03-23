@@ -1,0 +1,93 @@
+#!smake
+#
+# Makefile.glide_irix - Build glide2x/sst1/glide/src for IRIX 6.5
+#
+# Place in: glide2x/sst1/glide/src/
+# Run:      smake -f Makefile.glide_irix
+#
+# Output:   libglide2x.so  (installed to /usr/lib/libglide2x.so)
+#
+# Build order:
+#   1. swlibs/newpci/pcilib/  smake -f Makefile.pcilib
+#   2. glide2x/sst1/init/     smake -f Makefile.sst1init
+#   3. glide2x/sst1/glide/src/  smake -f Makefile.glide_irix  (this file)
+# -------------------------------------------------------------------------
+
+CC      = cc
+ABI     = -n32
+MIPSISA = -mips4
+
+DEFINES = -DFX_GLIDE_HW=SST1       \
+          -DGLIDE_HW_SST1=1        \
+          -DGLIDE_PLATFORM=GLIDE_HW_SST1 \
+          -D__sgi__=1              \
+          -D_MIPSEB=1              \
+          -DIRIX=1                 \
+          -UGLIDE_MULTIPLATFORM     \
+          -UGLIDE_INIT_HAL         \
+          -DFX_DLL_ENABLE=0        \
+          -UFX_DLL_ENABLE          \
+          -DGLIDE_LIB=1            \
+          -UGLIDE_DEBUG             \
+          -UGLIDE_SPLASH           \
+          -DGLIDE_USE_C_TRISETUP=1 \
+          -DGLIDE_IRIX_DBG_INIT=1
+          # Add -DGLIDE_IRIX_DBG_VERBOSE=1 to enable verbose per-frame debug output
+
+INCLUDES = -I. \
+           -I../../include \
+           -I../../incsrc \
+           -I../../../../swlibs/fxmisc \
+           -I../../../../swlibs/fxmemmap \
+           -I../../../../swlibs/include \
+           -I../../../../swlibs/newpci/pcilib \
+           -I../../init \
+           -I../../init/initvg
+
+CFLAGS  = $(ABI) $(MIPSISA) -O2 $(DEFINES) $(INCLUDES) -fullwarn
+LDFLAGS = $(ABI) $(MIPSISA) -shared -rdata_shared
+
+PCILIB   = ../../../../swlibs/newpci/pcilib/libfxpci_irix.a
+SST1INIT = ../../init/libsst1init_irix.a
+TARGET   = libglide2x.so
+
+.SUFFIXES: .c .o
+
+all: fxinline.h $(TARGET)
+
+fxgasm: fxgasm.c
+	$(CC) $(CFLAGS) -o fxgasm fxgasm.c
+
+fxinline.h: fxgasm
+	./fxgasm -inline > fxinline.h
+
+$(TARGET): compile
+	@echo "--- Linking $(TARGET) ---"
+	@SRCDIR=`pwd`; \
+	OBJS=`ls *.o`; \
+	rm -rf /tmp/glide_ar && mkdir /tmp/glide_ar; \
+	(cd /tmp/glide_ar && ar x $$SRCDIR/$(SST1INIT) && ar x $$SRCDIR/$(PCILIB)); \
+	ARCOBJS=`ls /tmp/glide_ar/*.o`; \
+	$(CC) $(LDFLAGS) -o $(TARGET) $$OBJS $$ARCOBJS; \
+	rm -rf /tmp/glide_ar
+	@echo "Built: $(TARGET)"
+
+# Compile all .c files, skipping non-library and x86-specific files
+compile: fxinline.h
+	@for f in *.c; do \
+	    case "$$f" in \
+	        fxbldno.c|fxgasm.c|sst96.c|splshdat.c) \
+	            echo "  skip: $$f"; continue ;; \
+	    esac; \
+	    echo "  cc: $$f"; \
+	    $(CC) $(CFLAGS) -c $$f || exit 1; \
+	done
+
+install: $(TARGET)
+	cp $(TARGET) /usr/lib32/$(TARGET)
+	@echo "Installed /usr/lib32/$(TARGET)"
+
+clean:
+	rm -f *.o $(TARGET) fxgasm fxinline.h
+
+.PHONY: all compile install clean

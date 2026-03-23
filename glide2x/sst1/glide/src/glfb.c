@@ -75,11 +75,125 @@
  * chagnes for multiplatform glide
 **
 */
+#include <string.h>
 #include <3dfx.h>
 #define FX_DLL_DEFINITION
 #include <fxdll.h>
 #include <glide.h>
 #include "fxglide.h"
+
+#if defined(__sgi__) || defined(IRIX)
+#include <stdlib.h>
+
+/*
+ * IRIX/MACE shadow-buffer state for grLfbLock/grLfbUnlock WRITE_ONLY.
+ *
+ * MACE silently swaps adjacent pixel pairs on 16-bit PCI writes (XOR^2
+ * address routing).  To fix this transparently for callers that write
+ * directly through the locked info->lfbPtr, we redirect them to a
+ * shadow buffer and flush it to the real LFB using 32-bit stores
+ * (two pixels packed per store) in grLfbUnlock.
+ *
+ * The shadow buffer is allocated once on first use and reused across
+ * frames to avoid per-frame malloc/free overhead.
+ *
+ * On flush we scan backward from the last row to find the highest row
+ * the caller actually wrote, and flush only up to that row.  This
+ * avoids issuing unnecessary PCI writes for rows the caller left empty.
+ * grLfbWriteRegion bypasses this mechanism entirely and manages its own
+ * 32-bit packing.
+ */
+static void            *_irix_shadow_buf     = NULL;
+static FxU32            _irix_shadow_cap     = 0; /* allocated bytes */
+static void            *_irix_real_lfbptr    = NULL;
+static FxU32            _irix_shadow_stride  = 0;
+static FxU32            _irix_shadow_height  = 0;
+static GrLfbWriteMode_t _irix_shadow_wmode   = GR_LFBWRITEMODE_565;
+
+/* Return the index of the last row that contains any non-zero word,
+ * or 0 if only row 0 (or nothing) was written.  Scanning cached RAM
+ * is cheap; it avoids flushing empty rows over the PCI bus. */
+static FxU32 _irix_find_last_dirty_row(void)
+{
+  FxU32 words_per_row = _irix_shadow_stride >> 2;
+  FxU32 y;
+  for (y = _irix_shadow_height; y > 0; y--) {
+    const FxU32 *row = (const FxU32 *)
+      ((const char *)_irix_shadow_buf + (y - 1) * _irix_shadow_stride);
+    FxU32 x;
+    for (x = 0; x < words_per_row; x++) {
+      if (row[x]) return y; /* row y-1 has data; flush up to row y */
+    }
+  }
+  return 0;
+}
+
+static void _irix_flush_shadow_to_lfb(void)
+{
+  FxU32 flush_rows = _irix_find_last_dirty_row();
+  FxU32 words_per_row;
+  FxU32 y;
+
+  if (flush_rows == 0) return;
+
+  switch (_irix_shadow_wmode) {
+  case GR_LFBWRITEMODE_888:
+  case GR_LFBWRITEMODE_8888:
+  case GR_LFBWRITEMODE_565_DEPTH:
+  case GR_LFBWRITEMODE_555_DEPTH:
+  case GR_LFBWRITEMODE_1555_DEPTH:
+    /* 32-bit pixel format: one pixel per word, no packing needed */
+    words_per_row = _irix_shadow_stride >> 2;
+    for (y = 0; y < flush_rows; y++) {
+      const FxU32    *src = (const FxU32 *)
+        ((const char *)_irix_shadow_buf + y * _irix_shadow_stride);
+      volatile FxU32 *dst = (volatile FxU32 *)
+        ((char *)_irix_real_lfbptr      + y * _irix_shadow_stride);
+      FxU32 x;
+      for (x = 0; x < words_per_row; x++)
+        dst[x] = src[x];
+    }
+    break;
+
+  default:
+    /*
+     * 16-bit pixel formats (565, 555, 1555, ZA16):
+     * Pack two adjacent pixels into one 32-bit store so that MACE's
+     * word-swap window places them correctly on the Voodoo bus.
+     * MACE full 4-byte endian reversal: word written as (c1<<16)|c0
+     * arrives at Voodoo as col_even=c0, col_odd=c1.
+     */
+    words_per_row = _irix_shadow_stride >> 2; /* pairs of FxU16 */
+    for (y = 0; y < flush_rows; y++) {
+      const FxU16    *src = (const FxU16 *)
+        ((const char *)_irix_shadow_buf + y * _irix_shadow_stride);
+      volatile FxU32 *dst = (volatile FxU32 *)
+        ((char *)_irix_real_lfbptr      + y * _irix_shadow_stride);
+      FxU32 x;
+      for (x = 0; x < words_per_row; x++)
+        dst[x] = ((FxU32)src[x*2+1] << 16) | (FxU32)src[x*2];
+    }
+    break;
+  }
+}
+
+/*
+ * Called by grBufferSwap to commit any pending shadow-buffer LFB writes
+ * to hardware before the buffer flip, without releasing the lock.  This
+ * supports callers that hold grLfbLock open across multiple frames
+ * (e.g. qatest01) and never call grLfbUnlock mid-loop.
+ * After flushing, the shadow buffer is zeroed so the dirty-row scan is
+ * accurate for the next frame's writes.
+ */
+void _irix_lfb_presync_flush(void)
+{
+  FxU32 bufSize;
+  if (_irix_real_lfbptr == NULL) return;
+  _irix_flush_shadow_to_lfb();
+  bufSize = _irix_shadow_stride * _irix_shadow_height;
+  memset(_irix_shadow_buf, 0, bufSize);
+}
+#endif /* IRIX */
 
 /*---------------------------------------------------------------------------
 ** grLfbConstantAlpha
@@ -313,7 +427,7 @@ GR_ENTRY(grLfbLock, FxBool,( GrLock_t type, GrBuffer_t buffer,  GrLfbWriteMode_t
           info->lfbPtr    = gc->lfb_ptr;
           info->origin    = origin;
           info->writeMode = writeMode;
-                    
+
           switch( lfbMode & SST_LFB_FORMAT ) {
           case SST_LFB_565:
           case SST_LFB_555:
@@ -329,8 +443,37 @@ GR_ENTRY(grLfbLock, FxBool,( GrLock_t type, GrBuffer_t buffer,  GrLfbWriteMode_t
             info->strideInBytes = gc->fbStride * 4;
             break;
           }
-                    
-          if ( rv == FXTRUE ) 
+
+#if defined(__sgi__) || defined(IRIX)
+          /* Redirect caller to a shadow buffer; flushed via 32-bit stores
+           * in grLfbUnlock to work around MACE 16-bit XOR^2 write routing.
+           * See _irix_flush_shadow_to_lfb() for details.
+           * grLfbWriteRegion bypasses this and manages its own packing. */
+          if ( rv == FXTRUE ) {
+            FxU32 bufSize = info->strideInBytes * gc->state.screen_height;
+            if ( _irix_shadow_cap < bufSize ) {
+              /* Allocate or grow the persistent shadow buffer. */
+              void *nb = malloc(bufSize);
+              if ( nb ) {
+                free(_irix_shadow_buf);
+                _irix_shadow_buf = nb;
+                _irix_shadow_cap = bufSize;
+              }
+            }
+            if ( _irix_shadow_buf ) {
+              memset(_irix_shadow_buf, 0, bufSize);
+              _irix_real_lfbptr    = gc->lfb_ptr;
+              _irix_shadow_stride  = info->strideInBytes;
+              _irix_shadow_height  = gc->state.screen_height;
+              _irix_shadow_wmode   = writeMode;
+              info->lfbPtr         = _irix_shadow_buf;
+            }
+            /* If no buffer (malloc failed): fall back to direct writes
+             * (pixels may swap, but better than nothing). */
+          }
+#endif /* IRIX */
+
+          if ( rv == FXTRUE )
             gc->lockPtrs[type] = buffer;
         }
       }
@@ -468,9 +611,20 @@ GR_ENTRY(grLfbUnlock, FxBool, ( GrLock_t type, GrBuffer_t buffer ) )
              buffer != GR_BUFFER_AUXBUFFER,
              "Bad buffer" );
   
-#if ( GLIDE_PLATFORM & GLIDE_HW_SST1 )  
+#if ( GLIDE_PLATFORM & GLIDE_HW_SST1 )
   if ( gc->lockPtrs[type] == (FxU32)buffer ) {
     rval = FXTRUE;
+
+#if defined(__sgi__) || defined(IRIX)
+    /* Flush shadow buffer to real LFB using 32-bit stores before
+     * restoring hardware registers (grSstIdle at the end of
+     * grLfbLock already serialised the FIFO, so the lfbMode
+     * register is stable). */
+    if ( type == GR_LFB_WRITE_ONLY && _irix_real_lfbptr != NULL ) {
+      _irix_flush_shadow_to_lfb();
+      _irix_real_lfbptr = NULL; /* shadow buf itself is kept for reuse */
+    }
+#endif /* IRIX */
 
     if ( gc->scanline_interleaved == FXTRUE ) {
       GR_SET_EXPECTED_SIZE( 12 );
@@ -480,11 +634,11 @@ GR_ENTRY(grLfbUnlock, FxBool, ( GrLock_t type, GrBuffer_t buffer ) )
 
     /* Restore depth bias level */
     GR_SET( hw->zaColor, gc->state.fbi_config.zaColor );
-  
+
     /* turn back on depth biasing */
     GR_SET( hw->fbzMode, gc->state.fbi_config.fbzMode );
 
-    if ( gc->scanline_interleaved == FXTRUE ) 
+    if ( gc->scanline_interleaved == FXTRUE )
       GR_SET( hw->nopCMD, 0x0 );
 
     gc->lockPtrs[type] = (FxU32)-1;
@@ -620,8 +774,8 @@ GR_ENTRY(grLfbWriteRegion, FxBool, ( GrBuffer_t dst_buffer,
   
   info.size = sizeof( info );
   
-  if ( grLfbLock( GR_LFB_WRITE_ONLY | GR_LFB_NOIDLE, 
-                 dst_buffer, 
+  if ( grLfbLock( GR_LFB_WRITE_ONLY | GR_LFB_NOIDLE,
+                 dst_buffer,
                  writeMode,
                  GR_ORIGIN_UPPER_LEFT,
                  FXFALSE,
@@ -634,8 +788,17 @@ GR_ENTRY(grLfbWriteRegion, FxBool, ( GrBuffer_t dst_buffer,
     FxU32 length;               /* bytes to copy in scanline */
     FxU32 scanline;             /* scanline number */
     int   aligned;              /* word aligned? */
-    
-    
+
+#if defined(__sgi__) || defined(IRIX)
+    /* grLfbWriteRegion handles its own 32-bit packing for IRIX.
+     * Restore the real LFB pointer and clear real_lfbptr so that
+     * grLfbUnlock skips the shadow-buffer flush. */
+    if ( _irix_real_lfbptr ) {
+      info.lfbPtr       = _irix_real_lfbptr;
+      _irix_real_lfbptr = NULL;
+    }
+#endif
+
     srcData = ( FxU32 * ) src_data;
     dstData = ( FxU32 * ) ( ((char*)info.lfbPtr)+
                            (dst_y*info.strideInBytes) );
@@ -649,9 +812,64 @@ GR_ENTRY(grLfbWriteRegion, FxBool, ( GrBuffer_t dst_buffer,
     case GR_LFB_SRC_FMT_ZA16:
       dstData = (FxU32*)(((FxU16*)dstData) + dst_x);
       length  = src_width * 2;
-      aligned = !((int)dstData&0x2);
       srcJump = src_stride - length;
       dstJump = info.strideInBytes - length;
+#if defined(__sgi__) || defined(IRIX)
+      /*
+       * MIPS/IRIX: Use 32-bit stores, NOT 16-bit.
+       *
+       * MACE (O2 PCI bridge) uses XOR^2 routing for 16-bit PCI writes:
+       * a 16-bit store to in-word offset 0 arrives at PCI bytes 2-3 (the
+       * ODD pixel slot), and offset 2 arrives at bytes 0-1 (the EVEN slot).
+       * This silently swaps every adjacent pixel pair in Voodoo DRAM.
+       *
+       * For 32-bit stores MACE does a full 4-byte endian reversal.  To
+       * place P_even at column 2k and P_odd at column 2k+1, store:
+       *   V = (P_odd << 16) | P_even
+       *
+       * Odd dst_x: the first pixel occupies the ODD slot of a 32-bit word.
+       * Read the existing EVEN slot via byte reads (XOR^3 addressing,
+       * unaffected by 16-bit routing), merge, and write back.
+       */
+      {
+        volatile FxU32 *base32;
+        const FxU16    *src16;
+        FxU32           sl;
+
+        base32 = (volatile FxU32 *)dstData;
+        src16  = (const FxU16 *)srcData;
+        for (sl = scanline; sl > 0; sl--) {
+          volatile FxU32 *wp = base32;
+          FxU32           px = 0;
+          GR_SET_EXPECTED_SIZE(length);
+
+          if ( (FxU32)wp & 2 ) {
+            /* Leading odd pixel: read existing even pixel via byte reads,
+             * then merge into a single 32-bit store. */
+            volatile FxU32     *wptr = (volatile FxU32 *)((char *)wp - 2);
+            volatile const FxU8 *p8  = (volatile const FxU8 *)wptr;
+            FxU16 existing_even = ((FxU16)p8[2] << 8) | (FxU16)p8[3];
+            *wptr = ((FxU32)src16[0] << 16) | existing_even;
+            wp    = (volatile FxU32 *)((char *)wp + 2);
+            px    = 1;
+          }
+
+          for ( ; px + 1 < src_width; px += 2 ) {
+            *wp++ = ((FxU32)src16[px + 1] << 16) | src16[px];
+          }
+
+          if ( px < src_width ) {
+            /* Trailing odd pixel: write even slot, zero the adjacent odd col. */
+            *wp = (FxU32)src16[px];
+          }
+
+          base32 = (volatile FxU32 *)((char *)base32 + info.strideInBytes);
+          src16  = (const FxU16 *)((const char *)src16 + src_stride);
+          GR_CHECK_SIZE_SLOPPY();
+        }
+      }
+#else
+      aligned = !((int)dstData&0x2);
       if ( aligned ) {
         while( scanline-- ) {
           GR_SET_EXPECTED_SIZE(length);
@@ -661,14 +879,12 @@ GR_ENTRY(grLfbWriteRegion, FxBool, ( GrBuffer_t dst_buffer,
             dstData++;
             srcData++;
           }
-                    
           if ( ((int)length) & 0x2 ) {
             GR_SET16( (*(FxU16*)&(dstData[0])),
                      (*(FxU16*)&(srcData[0])) );
             dstData = (FxU32*)(((FxU16*)dstData) + 1 );
             srcData = (FxU32*)(((FxU16*)srcData) + 1 );
           }
-                    
           dstData = (FxU32*)(((char*)dstData)+dstJump);
           srcData = (FxU32*)(((char*)srcData)+srcJump);
           GR_CHECK_SIZE_SLOPPY();
@@ -677,30 +893,27 @@ GR_ENTRY(grLfbWriteRegion, FxBool, ( GrBuffer_t dst_buffer,
         while( scanline-- ) {
           GR_SET_EXPECTED_SIZE(length);
           end = (FxU32*)((char*)srcData + length - 2);
-                    
           GR_SET16( (*(FxU16*)&(dstData[0])),
                    (*(FxU16*)&(srcData[0])) );
           dstData = (FxU32*)(((FxU16*)dstData) + 1 );
           srcData = (FxU32*)(((FxU16*)srcData) + 1 );
-                    
           while( srcData < end ) {
             GR_SET( dstData[0], srcData[0] );
             dstData++;
             srcData++;
           }
-                    
           if ( !(length & 0x2) ) {
             GR_SET16( (*(FxU16*)&(dstData[0])),
                      (*(FxU16*)&(srcData[0])) );
             dstData = (FxU32*)(((FxU16*)dstData) + 1 );
             srcData = (FxU32*)(((FxU16*)srcData) + 1 );
           }
-                    
           dstData = (FxU32*)(((char*)dstData)+dstJump);
           srcData = (FxU32*)(((char*)srcData)+srcJump);
           GR_CHECK_SIZE_SLOPPY();
         }
       }
+#endif
       break;
       /* 32-bit aligned */
     case GR_LFB_SRC_FMT_888:
@@ -712,6 +925,15 @@ GR_ENTRY(grLfbWriteRegion, FxBool, ( GrBuffer_t dst_buffer,
       length  = src_width * 4;
       srcJump = src_stride - length;
       dstJump = info.strideInBytes - length;
+#if defined(__sgi__) || defined(IRIX)
+      while ( scanline-- ) {
+        GR_SET_EXPECTED_SIZE(length);
+        memcpy( dstData, srcData, length );
+        dstData = (FxU32*)((char*)dstData + info.strideInBytes);
+        srcData = (FxU32*)((char*)srcData + src_stride);
+        GR_CHECK_SIZE_SLOPPY();
+      }
+#else
       while( scanline-- ) {
         GR_SET_EXPECTED_SIZE(length);
         end = (FxU32*)((char*)srcData + length);
@@ -724,6 +946,7 @@ GR_ENTRY(grLfbWriteRegion, FxBool, ( GrBuffer_t dst_buffer,
         srcData = (FxU32*)(((char*)srcData)+srcJump);
         GR_CHECK_SIZE_SLOPPY();
       }
+#endif
       break;
     case GR_LFB_SRC_FMT_RLE16:
       /* needs to be implemented */
@@ -875,9 +1098,57 @@ GR_ENTRY(grLfbReadRegion, FxBool, ( GrBuffer_t src_buffer,
     length   = src_width * 2;
     dstJump  = dst_stride - length;
     srcJump  = info.strideInBytes - length;
-    aligned  = !((int)srcData&0x2);
     odd      = (src_y+src_height) & 0x1;
-    
+
+#if defined(__sgi__) || defined(IRIX)
+    /*
+     * MIPS/IRIX: Voodoo 1 LFB read path.
+     *
+     * MACE performs a full 4-byte endian reversal on 32-bit PCI reads.
+     * A 32-bit read of two adjacent 16-bit pixels therefore yields:
+     *   word & 0xFFFF = col_even
+     *   word >> 16    = col_odd
+     *
+     * Using volatile FxU32 reads (one word at a time) is essential.
+     * Raw 16-bit FxU16 reads return byte-swapped pixel values because
+     * MACE only swaps within the halfword for 16-bit transactions, not
+     * the full 4-byte reversal needed to reconstruct the correct value.
+     * grLfbReadRegion passes readback tests; callers that read directly
+     * via a FxU16 pointer obtained from grLfbLock READ_ONLY will get
+     * incorrect values on IRIX for this reason.
+     *
+     * If src_x is odd, the first pixel occupies the ODD slot of the
+     * preceding aligned word (word >> 16).
+     */
+    {
+      const FxU16       *src16 = (const FxU16 *)srcData;
+      FxU16             *dst16 = (FxU16 *)dstData;
+      while ( scanline-- ) {
+        volatile const FxU32 *src32;
+        FxU32 px = 0;
+        if ( (int)src16 & 2 ) {
+          /* start not 4-byte aligned: pixel at src_x is the ODD slot */
+          FxU32 word = *(volatile const FxU32 *)((const char *)src16 - 2);
+          dst16[0] = (FxU16)(word >> 16);
+          px = 1;
+          src32 = (volatile const FxU32 *)(src16 + 1);
+        } else {
+          src32 = (volatile const FxU32 *)src16;
+        }
+        for ( ; px + 1 < src_width; px += 2 ) {
+          FxU32 word = *src32++;
+          dst16[px]     = (FxU16)(word & 0xFFFF); /* col_even */
+          dst16[px + 1] = (FxU16)(word >> 16);    /* col_odd  */
+        }
+        if ( px < src_width ) {
+          dst16[px] = (FxU16)(*src32 & 0xFFFF);   /* trailing col_even */
+        }
+        src16 = (const FxU16 *)((const char *)src16 + info.strideInBytes);
+        dst16 = (FxU16 *)((char *)dst16 + dst_stride);
+      }
+    }
+#else
+    aligned  = !((int)srcData&0x2);
     if ( aligned ) {
       while( scanline-- ) {
         end = (FxU32*)((char*)srcData + length - 2);
@@ -889,22 +1160,22 @@ GR_ENTRY(grLfbReadRegion, FxBool, ( GrBuffer_t src_buffer,
             sst1InitSliPciOwner(gc->base_ptr, SST_SLI_SLAVE_OWNPCI);
         }
 
-        while( srcData < end ) 
+        while( srcData < end )
           *dstData++ = *srcData++;
-                
+
         if ( ((int)length) & 0x2 ) {
           (*(FxU16*)dstData) = (*(FxU16*)srcData);
           dstData = (FxU32*)(((FxU16*)dstData) + 1 );
           srcData = (FxU32*)(((FxU16*)srcData) + 1 );
         }
-                
+
         dstData = (FxU32*)(((char*)dstData)+dstJump);
         srcData = (FxU32*)(((char*)srcData)+srcJump);
       }
     } else {
       while( scanline-- ) {
         end = (FxU32*)((char*)srcData + length - 2);
-                
+
         if(gc->scanline_interleaved == FXTRUE) {
           if((scanline+odd) & 0x1)
             sst1InitSliPciOwner(gc->base_ptr, SST_SLI_MASTER_OWNPCI);
@@ -924,13 +1195,14 @@ GR_ENTRY(grLfbReadRegion, FxBool, ( GrBuffer_t src_buffer,
           dstData = (FxU32*)(((FxU16*)dstData) + 1 );
           srcData = (FxU32*)(((FxU16*)srcData) + 1 );
         }
-                
+
         dstData = (FxU32*)(((char*)dstData)+dstJump);
         srcData = (FxU32*)(((char*)srcData)+srcJump);
       }
     }
+#endif
     grLfbUnlock( GR_LFB_READ_ONLY, src_buffer );
-    if ( gc->scanline_interleaved ) 
+    if ( gc->scanline_interleaved )
       sst1InitSliPciOwner( gc->base_ptr, SST_SLI_MASTER_OWNPCI );
   } else {
     rv = FXFALSE;

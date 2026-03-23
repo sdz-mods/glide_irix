@@ -189,8 +189,11 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitDacDetect(FxU32 * sstbase)
     sst1InitIdleFBINoNOP(sstbase);
 
     /* Enable reads from the DAC (multiplexed on the fbiInit2 address) */
-    /* Disallow writes to pass through the PCI FIFO */
-    PCICFG_WR(SST1_PCI_INIT_ENABLE, SST_INITWR_EN | SST_FBIINIT23_REMAP);
+    /* Keep FIFOWR_EN so dacData writes use the FIFO path (no PCI RETRY on
+     * non-x86 bridges like MACE/O2 that don't auto-retry).
+     * FBIINIT23_REMAP only affects fbiInit2 reads; orthogonal to FIFOWR_EN. */
+    PCICFG_WR(SST1_PCI_INIT_ENABLE,
+              SST_INITWR_EN | SST_PCI_FIFOWR_EN | SST_FBIINIT23_REMAP);
     sst1InitIdleFBINoNOP(sstbase);
 
     if(sst1InitUseVoodooFile == FXTRUE) {
@@ -658,8 +661,11 @@ FxBool sst1InitSetVidClkICS(FxU32 *sstbase, sst1ClkTimingStruct
     sst1InitIdleFBINoNOP(sstbase);
 
     /* Enable reads from the DAC (multiplexed on the fbiInit2 address) */
-    /* Disallow writes to pass through the PCI FIFO */
-    PCICFG_WR(SST1_PCI_INIT_ENABLE, SST_INITWR_EN | SST_FBIINIT23_REMAP);
+    /* Keep FIFOWR_EN so dacData writes use the FIFO path (no PCI RETRY on
+     * non-x86 bridges like MACE/O2 that don't auto-retry).
+     * FBIINIT23_REMAP only affects fbiInit2 reads; orthogonal to FIFOWR_EN. */
+    PCICFG_WR(SST1_PCI_INIT_ENABLE,
+              SST_INITWR_EN | SST_PCI_FIFOWR_EN | SST_FBIINIT23_REMAP);
     sst1InitIdleFBINoNOP(sstbase);
 
     sst1InitDacWr(sstbase, SST_DACREG_ICS_PLLADDR_RD,
@@ -727,8 +733,11 @@ FxBool sst1InitSetVidClkINI(FxU32 *sstbase, FxU32 width,
     sst1InitIdleFBINoNOP(sstbase);
 
     /* Enable reads from the DAC (multiplexed on the fbiInit2 address) */
-    /* Disallow writes to pass through the PCI FIFO */
-    PCICFG_WR(SST1_PCI_INIT_ENABLE, SST_INITWR_EN | SST_FBIINIT23_REMAP);
+    /* Keep FIFOWR_EN so dacData writes use the FIFO path (no PCI RETRY on
+     * non-x86 bridges like MACE/O2 that don't auto-retry).
+     * FBIINIT23_REMAP only affects fbiInit2 reads; orthogonal to FIFOWR_EN. */
+    PCICFG_WR(SST1_PCI_INIT_ENABLE,
+              SST_INITWR_EN | SST_PCI_FIFOWR_EN | SST_FBIINIT23_REMAP);
     sst1InitIdleFBINoNOP(sstbase);
 
     setVideo = iniDac->setVideo;
@@ -844,8 +853,11 @@ FxBool sst1InitSetGrxClkICS(FxU32 *sstbase, sst1ClkTimingStruct
     sst1InitIdleFBINoNOP(sstbase);
 
     /* Enable reads from the DAC (multiplexed on the fbiInit2 address) */
-    /* Disallow writes to pass through the PCI FIFO */
-    PCICFG_WR(SST1_PCI_INIT_ENABLE, SST_INITWR_EN | SST_FBIINIT23_REMAP);
+    /* Keep FIFOWR_EN so dacData writes use the FIFO path (no PCI RETRY on
+     * non-x86 bridges like MACE/O2 that don't auto-retry).
+     * FBIINIT23_REMAP only affects fbiInit2 reads; orthogonal to FIFOWR_EN. */
+    PCICFG_WR(SST1_PCI_INIT_ENABLE,
+              SST_INITWR_EN | SST_PCI_FIFOWR_EN | SST_FBIINIT23_REMAP);
     sst1InitIdleFBINoNOP(sstbase);
 
     sst1InitDacWr(sstbase, SST_DACREG_ICS_PLLADDR_RD,
@@ -920,8 +932,11 @@ FxBool sst1InitSetGrxClkINI(FxU32 *sstbase, sst1ClkTimingStruct
     sst1InitIdleFBINoNOP(sstbase);
 
     /* Enable reads from the DAC (multiplexed on the fbiInit2 address) */
-    /* Disallow writes to pass through the PCI FIFO */
-    PCICFG_WR(SST1_PCI_INIT_ENABLE, SST_INITWR_EN | SST_FBIINIT23_REMAP);
+    /* Keep FIFOWR_EN so dacData writes use the FIFO path (no PCI RETRY on
+     * non-x86 bridges like MACE/O2 that don't auto-retry).
+     * FBIINIT23_REMAP only affects fbiInit2 reads; orthogonal to FIFOWR_EN. */
+    PCICFG_WR(SST1_PCI_INIT_ENABLE,
+              SST_INITWR_EN | SST_PCI_FIFOWR_EN | SST_FBIINIT23_REMAP);
     sst1InitIdleFBINoNOP(sstbase);
 
     setMemClk = iniDac->setMemClk;
@@ -1015,8 +1030,11 @@ FxBool sst1InitSetVidModeICS(FxU32 *sstbase, FxU32 video16BPP)
     sst1InitIdleFBINoNOP(sstbase);
 
     /* Enable reads from the DAC (multiplexed on the fbiInit2 address) */
-    /* Disallow writes to pass through the PCI FIFO */
-    PCICFG_WR(SST1_PCI_INIT_ENABLE, SST_INITWR_EN | SST_FBIINIT23_REMAP);
+    /* Keep FIFOWR_EN so dacData writes use the FIFO path (no PCI RETRY on
+     * non-x86 bridges like MACE/O2 that don't auto-retry).
+     * FBIINIT23_REMAP only affects fbiInit2 reads; orthogonal to FIFOWR_EN. */
+    PCICFG_WR(SST1_PCI_INIT_ENABLE,
+              SST_INITWR_EN | SST_PCI_FIFOWR_EN | SST_FBIINIT23_REMAP);
     sst1InitIdleFBINoNOP(sstbase);
 
     if(video16BPP)
@@ -1067,8 +1085,11 @@ FxBool sst1InitSetVidModeINI(FxU32 *sstbase, FxU32 video16BPP)
     sst1InitIdleFBINoNOP(sstbase);
 
     /* Enable reads from the DAC (multiplexed on the fbiInit2 address) */
-    /* Disallow writes to pass through the PCI FIFO */
-    PCICFG_WR(SST1_PCI_INIT_ENABLE, SST_INITWR_EN | SST_FBIINIT23_REMAP);
+    /* Keep FIFOWR_EN so dacData writes use the FIFO path (no PCI RETRY on
+     * non-x86 bridges like MACE/O2 that don't auto-retry).
+     * FBIINIT23_REMAP only affects fbiInit2 reads; orthogonal to FIFOWR_EN. */
+    PCICFG_WR(SST1_PCI_INIT_ENABLE,
+              SST_INITWR_EN | SST_PCI_FIFOWR_EN | SST_FBIINIT23_REMAP);
     sst1InitIdleFBINoNOP(sstbase);
 
     setVideoMode = iniDac->setVideoMode;
@@ -1146,8 +1167,11 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitDacIndexedEnable(FxU32 *sstbase,
     sst1InitIdleFBINoNOP(sstbase);
 
     /* Enable reads from the DAC (multiplexed on the fbiInit2 address) */
-    /* Disallow writes to pass through the PCI FIFO */
-    PCICFG_WR(SST1_PCI_INIT_ENABLE, SST_INITWR_EN | SST_FBIINIT23_REMAP);
+    /* Keep FIFOWR_EN so dacData writes use the FIFO path (no PCI RETRY on
+     * non-x86 bridges like MACE/O2 that don't auto-retry).
+     * FBIINIT23_REMAP only affects fbiInit2 reads; orthogonal to FIFOWR_EN. */
+    PCICFG_WR(SST1_PCI_INIT_ENABLE,
+              SST_INITWR_EN | SST_PCI_FIFOWR_EN | SST_FBIINIT23_REMAP);
     sst1InitIdleFBINoNOP(sstbase);
 
     /* Sometimes the DACs seem to go into never-never land, so */

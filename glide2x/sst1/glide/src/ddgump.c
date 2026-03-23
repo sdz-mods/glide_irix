@@ -186,7 +186,7 @@ GR_DDFUNC(_gumpTexCombineFunction, void, ( int virtual_tmu ))
     break;
   }
   PACKER_WORKAROUND;
-  GR_SET( SST_TMU(hw,0)->textureMode , texmode );
+  GR_SET_SYNC( SST_TMU(hw,0)->textureMode , texmode );
   PACKER_WORKAROUND;
   GR_END_SLOPPY();
 } /* _gumpTexCombineFunction */

@@ -1,0 +1,66 @@
+#!smake
+#
+# Makefile.pcilib - Build swlibs/newpci/pcilib for IRIX 6.5
+#
+# Place in: swlibs/newpci/pcilib/
+# Run:      smake -f Makefile.pcilib
+#
+# Output:   libfxpci_irix.a
+# -------------------------------------------------------------------------
+
+CC     = cc
+ABI    = -n32
+MIPSISA = -mips4
+
+DEFINES = -D__sgi__=1    \
+          -D_MIPSEB=1    \
+          -DIRIX=1       \
+          -DGLIDE_PLATFORM=GLIDE_HW_SST1 \
+          -DFX_DLL_ENABLE=0 \
+          -UFX_DLL_ENABLE \
+          -DGLIDE_IRIX_DBG_INIT=1
+          # Add -DGLIDE_IRIX_DBG_VERBOSE=1 to enable verbose debug output
+
+INCLUDES = -I. \
+           -I../../fxmisc \
+           -I../../fxmemmap \
+           -I../../include \
+           -I../../../glide2x/sst1/init \
+           -I../../../glide2x/sst1/incsrc \
+           -I../../../glide2x/sst1/glide/src
+
+CFLAGS = $(ABI) $(MIPSISA) -O2 $(DEFINES) $(INCLUDES) -fullwarn
+
+AR     = ar
+TARGET = libfxpci_irix.a
+
+# fxirix.c replaces fxlinux.c
+# fxdpmi2.c, fxphrlap.c, fxnt.c, fxvxd.c, fxw32.c = Windows/DOS only, skip
+# fxmsr.c = x86 MSR instructions, skip
+SRCS = fxpci.c    \
+       fxirix.c   \
+       fxinfo.c   \
+       sst1_pci.c
+
+OBJS = $(SRCS:.c=.o)
+
+.SUFFIXES: .c .o
+
+all: $(TARGET)
+
+$(TARGET): $(OBJS)
+	$(AR) rc $(TARGET) $(OBJS)
+	@echo "Built: $(TARGET)"
+
+.c.o:
+	$(CC) $(CFLAGS) -c $< -o $@
+
+fxpci.o:    fxpci.c fxpci.h pcilib.h
+fxirix.o:   fxirix.c fxpci.h pcilib.h tdfx_irix.h
+fxinfo.o:   fxinfo.c fxpci.h pcilib.h
+sst1_pci.o: sst1_pci.c sst1_pci.h fxpci.h
+
+clean:
+	rm -f $(OBJS) $(TARGET)
+
+.PHONY: all clean

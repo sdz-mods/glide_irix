@@ -34,6 +34,14 @@
 #include "fxlinux.h"
 #endif
 
+
+#if defined(__sgi__)
+/* fxirix.c provides hasDev3DfxIrix, pciFetchRegisterIrix, pciUpdateRegisterIrix */
+extern FxBool hasDev3DfxIrix(void);
+extern FxU32  pciFetchRegisterIrix(FxU32 cmd, FxU32 size, FxU32 device);
+extern FxBool pciUpdateRegisterIrix(FxU32 cmd, FxU32 data, FxU32 size, FxU32 device);
+#endif
+
 /* PRIVATE DATA (within the library) */
 FxU32   pciVxdVer = 0;
 FxU32   pciErrorCode = PCI_ERR_NOERR;
@@ -441,10 +449,40 @@ pciOpenLinux(void)
     pciLibraryInitialized=FXTRUE;
   } else {
     pciLibraryInitialized=FXFALSE;
-  }      
+  }
   return pciLibraryInitialized;
 }
 #endif /* defined(__linux__) */
+
+#if defined(__sgi__)
+extern int getNumDevicesIrix(void);
+static FxBool
+pciOpenIrix(void)
+{
+  int numDevices, deviceNumber;
+
+  numDevices = getNumDevicesIrix();
+#ifdef GLIDE_IRIX_DBG_INIT
+  fprintf(stderr, "pciOpenIrix: numDevices=%d\n", numDevices);
+#endif
+  for (deviceNumber = 0; deviceNumber < MAX_PCI_DEVICES; deviceNumber++) {
+    if (deviceNumber < numDevices) {
+      busDetected = FXTRUE;
+      configMechanism = 1;
+      deviceExists[deviceNumber] = FXTRUE;
+      vendorIDs[deviceNumber] = 0x121a;
+    } else {
+      deviceExists[deviceNumber] = FXFALSE;
+    }
+  }
+  if (numDevices) {
+    pciLibraryInitialized = FXTRUE;
+  } else {
+    pciLibraryInitialized = FXFALSE;
+  }
+  return pciLibraryInitialized;
+}
+#endif /* defined(__sgi__) */
 
 FX_EXPORT FxBool FX_CSTYLE
 pciOpen( void )
@@ -471,6 +509,12 @@ pciOpen( void )
 #ifdef __linux__
   if (hasDev3DfxLinux()) return pciOpenLinux();
 #endif /* defined(__linux__) */
+#if defined(__sgi__)
+#ifdef GLIDE_IRIX_DBG_INIT
+  fprintf(stderr, "pciOpen: hasDev3DfxIrix=%d\n", (int)hasDev3DfxIrix());
+#endif
+  if (hasDev3DfxIrix()) return pciOpenIrix();
+#endif /* defined(__sgi__) */
 
   
   for ( deviceNumber = 0; deviceNumber < MAX_PCI_DEVICES; deviceNumber++ ) {
@@ -578,6 +622,15 @@ pciGetConfigData( PciRegister reg, FxU32 device_bus_func_number, FxU32 *data )
     return FXTRUE;
   }
 #endif
+
+#if defined(__sgi__)
+  if (hasDev3DfxIrix()) {
+    *data = pciFetchRegisterIrix(reg.regAddress, reg.sizeInBytes,
+                                 device_bus_func_number);
+    return FXTRUE;
+  }
+#endif
+
   *data = _pciFetchRegister( reg.regAddress, reg.sizeInBytes,
                              device_bus_func_number, configMechanism );
   
@@ -624,6 +677,15 @@ pciSetConfigData( PciRegister reg, FxU32 device_bus_func_number, FxU32 *data )
     return FXTRUE;
   }
 #endif
+
+#if defined(__sgi__)
+  if (hasDev3DfxIrix()) {
+    pciUpdateRegisterIrix(reg.regAddress, *data, reg.sizeInBytes,
+                          device_bus_func_number);
+    return FXTRUE;
+  }
+#endif
+
   _pciUpdateRegister( reg.regAddress, *data, reg.sizeInBytes,
                       device_bus_func_number, configMechanism );
   

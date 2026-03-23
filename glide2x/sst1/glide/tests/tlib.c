@@ -22,7 +22,7 @@
 
 #include <stdlib.h>
 #include <stdarg.h>
-#ifndef __linux__
+#if defined(_WIN32) || defined(__WIN32__)
 #include <conio.h>
 #endif
 #include <stdio.h>
@@ -1393,7 +1393,7 @@ tlScreenDump
   return FXTRUE;
 }
 
-#ifdef __linux__
+#if defined(__linux__) || defined(linux) || defined(sgi) || defined(__sgi__)
 #include <linutil.h>
 
 /*-------------------------------------------------------------------

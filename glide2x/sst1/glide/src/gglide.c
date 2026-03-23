@@ -175,7 +175,12 @@
 **
 */
 
+#include <stdio.h>
 #include <string.h>
+#if defined(__sgi__) || defined(IRIX)
+#  include <sys/types.h>
+#  include <unistd.h>
+#endif
 #include <3dfx.h>
 #include <glidesys.h>
 
@@ -188,6 +193,8 @@
 #if ( GLIDE_PLATFORM & GLIDE_HW_SST96 )
 #include <init.h>
 #endif
+
+
 
 /*---------------------------------------------------------------------------
 ** grAlphaBlendFunction
@@ -427,10 +434,33 @@ GR_ENTRY(grBufferClear, void, ( GrColor_t color, GrAlpha_t alpha, FxU16 depth ))
 #else
   GR_BEGIN("grBufferClear",86,24);
 #endif
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "MARK: grBufferClear(0x%x,0x%x,0x%x) fbzMode=0x%x\n",
+    (unsigned)color, (unsigned)alpha, (unsigned)depth,
+    (unsigned)gc->state.fbi_config.fbzMode);
+#endif
   GDBG_INFO_MORE((gc->myLevel,"(0x%x,0x%x,0x%x)\n",color,alpha,depth));
 
   oldc1   = gc->state.fbi_config.color1;
   zacolor = oldzacolor = gc->state.fbi_config.zaColor;
+
+#if defined(__sgi__) || defined(IRIX)
+  /* IRIX/MACE: wait for chip idle before issuing fastfillCMD.
+   * In back-buffer mode grBufferSwap already ensures the chip is idle,
+   * so this is effectively free.  In front-buffer mode (no grBufferSwap
+   * called by the application) the render loop spins at full speed,
+   * rapidly filling the Voodoo1 FIFO with triangle commands.  Without
+   * this wait, FIFO writes hit PCI RETRY before _grSpinFifo can
+   * intervene, accumulating enough retries to trigger a permanent MACE
+   * fault.  Waiting for !SST_BUSY here provides the missing
+   * frame-boundary synchronisation. */
+  {
+    FxU32 _irix_clear_idle_spins = 0;
+    while ((grSstStatus() & SST_BUSY) &&
+           (++_irix_clear_idle_spins < 10000000UL))
+      ;
+  }
+#endif
 
   /*
   ** Setup source registers
@@ -438,18 +468,18 @@ GR_ENTRY(grBufferClear, void, ( GrColor_t color, GrAlpha_t alpha, FxU16 depth ))
   if ( gc->state.fbi_config.fbzMode & SST_RGBWRMASK )
   {
     _grSwizzleColor( &color );
-    GR_SET( hw->c1, color );
+    GR_SET_SYNC( hw->c1, color );
   }
   if ( ( gc->state.fbi_config.fbzMode & ( SST_ENALPHABUFFER | SST_ZAWRMASK ) ) == ( SST_ENALPHABUFFER | SST_ZAWRMASK ) )
   {
     zacolor &= ~SST_ZACOLOR_ALPHA;
     zacolor |= ( ( ( FxU32 ) alpha ) << SST_ZACOLOR_ALPHA_SHIFT );
-    GR_SET( hw->zaColor, zacolor );
+    GR_SET_SYNC( hw->zaColor, zacolor );
   }
   if ( ( gc->state.fbi_config.fbzMode & ( SST_ENDEPTHBUFFER | SST_ZAWRMASK ) ) == ( SST_ENDEPTHBUFFER | SST_ZAWRMASK ) )  {
     zacolor &= ~SST_ZACOLOR_DEPTH;
     zacolor |= ( ( ( FxU32 ) depth ) << SST_ZACOLOR_DEPTH_SHIFT );
-    GR_SET( hw->zaColor, zacolor );
+    GR_SET_SYNC( hw->zaColor, zacolor );
   }
 #if (GLIDE_PLATFORM & GLIDE_HW_SST96)
   /*
@@ -463,31 +493,55 @@ GR_ENTRY(grBufferClear, void, ( GrColor_t color, GrAlpha_t alpha, FxU16 depth ))
     FxU32 fbzMode;
     /* Disable ZA write and fill */
     fbzMode = gc->state.fbi_config.fbzMode & ~SST_ZAWRMASK;
-    GR_SET(hw->fbzMode, fbzMode);
-    GR_SET(hw->fastfillCMD,1);
+    GR_SET_SYNC(hw->fbzMode, fbzMode);
+    GR_SET_SYNC(hw->fastfillCMD,1);
 
     /* Disable RGB write mask and fill */
     fbzMode = gc->state.fbi_config.fbzMode & ~SST_RGBWRMASK;
-    GR_SET(hw->fbzMode, fbzMode);
-    GR_SET(hw->fastfillCMD,1);
+    GR_SET_SYNC(hw->fbzMode, fbzMode);
+    GR_SET_SYNC(hw->fastfillCMD,1);
 
     /* Restore fbzMode to previous state */
-    GR_SET(hw->fbzMode, gc->state.fbi_config.fbzMode);
-        
+    GR_SET_SYNC(hw->fbzMode, gc->state.fbi_config.fbzMode);
+
   } else
 #endif
   /*
   ** Execute the FASTFILL command
   */
-  P6FENCE_CMD( GR_SET(hw->fastfillCMD,1) );
-
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "MARK: grBufferClear before fastfillCMD zaColor=0x%x\n", (unsigned)zacolor);
+#endif
+  P6FENCE_CMD( GR_SET_SYNC(hw->fastfillCMD,1) );
+#if defined(__sgi__) || defined(IRIX)
+  /* IRIX/Voodoo1: wait after fastfillCMD before restoring zaColor, but
+   * ONLY when zaColor actually changed (i.e. the depth clear value differs
+   * from the saved value).  The Voodoo1 fastfill rasterizer latches zaColor
+   * a few cycles after it dequeues fastfillCMD; the zaColor restore that
+   * follows can race that latch and overwrite the new depth before the
+   * rasterizer reads it.  usleep(1) gives the chip time to latch.
+   *
+   * Skipping the sleep when zaColor is unchanged avoids an unnecessary
+   * ~10ms OS-tick stall every frame for Z-buffer clears (depth=0x0000),
+   * which are immune because oldzacolor == zacolor (the restore is a no-op
+   * from the hardware's perspective).  W-buffer clears (depth=0xFFFF)
+   * require the sleep because oldzacolor (0x0000) != zacolor (0x0000FFFF). */
+  if (zacolor != oldzacolor)
+    usleep(1);
+#endif
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "MARK: grBufferClear after fastfillCMD\n");
+#endif
 
   /*
   ** Restore C1 and ZACOLOR
   */
-  GR_SET( hw->c1, oldc1 );
-  GR_SET( hw->zaColor, oldzacolor );
+  GR_SET_SYNC( hw->c1, oldc1 );
+  GR_SET_SYNC( hw->zaColor, oldzacolor );
   GR_END_SLOPPY();
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "MARK: grBufferClear done\n");
+#endif
 } /* grBufferClear */
 
 
@@ -598,7 +652,51 @@ GR_ENTRY(grBufferSwap, void, ( int swapInterval ))
   /* wait until there's 6 or fewer buffer swaps pending */
   /* the hardware counter is only 3 bits so we don't want it to overflow */
   /* also the latency gets too long */
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "MARK: grBufferSwap pending=%d\n", (int)grBufferNumPending());
+#endif
+#if defined(__sgi__) || defined(IRIX)
+  /*
+   * IRIX/SGI O2 (MACE PCI bridge) fix:
+   *
+   * The original code spins here with no delay, hammering the Voodoo status
+   * register with continuous PCI reads.  On the O2, the MACE PCI bridge has
+   * a known issue with PCI RETRY cycles: when the Voodoo is busy it responds
+   * to reads with RETRY, and if MACE receives too many RETRYs in rapid
+   * succession it enters a fault state and stops forwarding PCI transactions.
+   * This is the same underlying issue that required the SET/SETF readback
+   * macros for register writes.
+   *
+   * When this happens with the swap pending counter at 7 (the 3-bit maximum),
+   * the hardware can no longer process vsync events, so the counter never
+   * decrements and the spin loop never exits -- causing a permanent freeze.
+   *
+   * Two changes are needed to prevent this:
+   *
+   * 1. Lower the threshold from 6 to 1.  With threshold=6 the CPU sends a
+   *    swapbufferCMD when pending=6, pushing the counter to 7.  Once at 7
+   *    the hardware reliably gets stuck on MACE.  Keeping the counter at
+   *    max 2 (threshold=1) stays safely away from the problematic value.
+   *
+   * 2. Sleep 1ms between polls.  This gives MACE and the Voodoo idle time
+   *    between status reads, preventing the RETRY storm that causes the
+   *    fault state.  1ms is short enough to respond quickly when a vsync
+   *    occurs (every ~16.7ms at 60Hz) without burning CPU or PCI bandwidth.
+   *
+   * On x86 this is not an issue because the host PCI bridge handles RETRY
+   * transparently in hardware without CPU involvement, and there is no
+   * equivalent of MACE's fatal-RETRY behaviour.
+   */
+  while (grBufferNumPending() > 1)
+    usleep(1000);
+  /* Flush any pending shadow-buffer LFB writes to hardware so they are
+   * visible on the newly-promoted front buffer after the swap.  Needed
+   * for callers that hold grLfbLock open across multiple frames without
+   * calling grLfbUnlock per frame (e.g. qatest01). */
+  _irix_lfb_presync_flush();
+#else
   while (grBufferNumPending() > 6);
+#endif
 
   /* if the interval is non-zero turn on VSYNC waiting */
   vSync = swapInterval > 0 ? 1 : 0;
@@ -618,7 +716,7 @@ GR_ENTRY(grBufferSwap, void, ( int swapInterval ))
   /* NOTE: we need a PCI read before and after the swap command */
   /* but since we already called grBufferNumPending() we've done a read */
   GR_SET_EXPECTED_SIZE(4);
-  P6FENCE_CMD( GR_SET(hw->swapbufferCMD, (swapInterval<<1) | vSync) );
+  P6FENCE_CMD( GR_SET_SYNC(hw->swapbufferCMD, (swapInterval<<1) | vSync) );
 
 #ifdef GLIDE_DEBUG
   if (_GlideRoot.environment.snapshot > 0) {
@@ -1074,6 +1172,9 @@ GR_ENTRY(grDepthBufferMode, void, ( GrDepthBufferMode_t mode ))
   FxU32 fbzMode;
 
   GR_BEGIN("grDepthBufferMode",85,4);
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "MARK: grDepthBufferMode(%d) entry\n", (int)mode);
+#endif
   GDBG_INFO_MORE((gc->myLevel,"(%d)\n",mode));
 
    /*
@@ -1126,6 +1227,9 @@ GR_ENTRY(grDepthBufferMode, void, ( GrDepthBufferMode_t mode ))
 
   _grUpdateParamIndex();
   GR_END();
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "MARK: grDepthBufferMode done fbzMode=0x%x\n", (unsigned)fbzMode);
+#endif
 } /* grDepthBufferMode */
 
 /*---------------------------------------------------------------------------
@@ -1357,32 +1461,32 @@ GR_ENTRY(grGlideSetState, void, ( const GrState *state ))
   gc->state = *state;
 
   /* Update the hardware state from the saved state */
-  GR_SET( hw->fbzColorPath, gc->state.fbi_config.fbzColorPath );
-  GR_SET( hw->fogMode, gc->state.fbi_config.fogMode );
-  GR_SET( hw->alphaMode, gc->state.fbi_config.alphaMode );
-  GR_SET( hw->fbzMode, gc->state.fbi_config.fbzMode );
+  GR_SET_SYNC( hw->fbzColorPath, gc->state.fbi_config.fbzColorPath );
+  GR_SET_SYNC( hw->fogMode, gc->state.fbi_config.fogMode );
+  GR_SET_SYNC( hw->alphaMode, gc->state.fbi_config.alphaMode );
+  GR_SET_SYNC( hw->fbzMode, gc->state.fbi_config.fbzMode );
 #if !(GLIDE_PLATFORM & GLIDE_HW_SST96)
-  GR_SET( hw->lfbMode, gc->state.fbi_config.lfbMode );
+  GR_SET_SYNC( hw->lfbMode, gc->state.fbi_config.lfbMode );
 #endif
-  GR_SET( hw->clipLeftRight, gc->state.fbi_config.clipLeftRight );
-  GR_SET( hw->clipBottomTop, gc->state.fbi_config.clipBottomTop );
-  GR_SET( hw->fogColor, gc->state.fbi_config.fogColor );
-  GR_SET( hw->zaColor, gc->state.fbi_config.zaColor );
-  GR_SET( hw->chromaKey, gc->state.fbi_config.chromaKey );
-  GR_SET( hw->stipple, gc->state.fbi_config.stipple );
-  GR_SET( hw->c0, gc->state.fbi_config.color0 );
-  GR_SET( hw->c1, gc->state.fbi_config.color1 );
+  GR_SET_SYNC( hw->clipLeftRight, gc->state.fbi_config.clipLeftRight );
+  GR_SET_SYNC( hw->clipBottomTop, gc->state.fbi_config.clipBottomTop );
+  GR_SET_SYNC( hw->fogColor, gc->state.fbi_config.fogColor );
+  GR_SET_SYNC( hw->zaColor, gc->state.fbi_config.zaColor );
+  GR_SET_SYNC( hw->chromaKey, gc->state.fbi_config.chromaKey );
+  GR_SET_SYNC( hw->stipple, gc->state.fbi_config.stipple );
+  GR_SET_SYNC( hw->c0, gc->state.fbi_config.color0 );
+  GR_SET_SYNC( hw->c1, gc->state.fbi_config.color1 );
 
   for ( tmu = 0; tmu < gc->num_tmu; tmu++ ) {
     tmuregs = SST_TMU(hw,tmu);
     PACKER_WORKAROUND;
-    GR_SET( tmuregs->textureMode, gc->state.tmu_config[tmu].textureMode );
-    GR_SET( tmuregs->tLOD, gc->state.tmu_config[tmu].tLOD );
-    GR_SET( tmuregs->tDetail, gc->state.tmu_config[tmu].tDetail );
-    GR_SET( tmuregs->texBaseAddr, gc->state.tmu_config[tmu].texBaseAddr );
-    GR_SET( tmuregs->texBaseAddr1, gc->state.tmu_config[tmu].texBaseAddr_1 );
-    GR_SET( tmuregs->texBaseAddr2, gc->state.tmu_config[tmu].texBaseAddr_2 );
-    GR_SET( tmuregs->texBaseAddr38, gc->state.tmu_config[tmu].texBaseAddr_3_8 );
+    GR_SET_SYNC( tmuregs->textureMode, gc->state.tmu_config[tmu].textureMode );
+    GR_SET_SYNC( tmuregs->tLOD, gc->state.tmu_config[tmu].tLOD );
+    GR_SET_SYNC( tmuregs->tDetail, gc->state.tmu_config[tmu].tDetail );
+    GR_SET_SYNC( tmuregs->texBaseAddr, gc->state.tmu_config[tmu].texBaseAddr );
+    GR_SET_SYNC( tmuregs->texBaseAddr1, gc->state.tmu_config[tmu].texBaseAddr_1 );
+    GR_SET_SYNC( tmuregs->texBaseAddr2, gc->state.tmu_config[tmu].texBaseAddr_2 );
+    GR_SET_SYNC( tmuregs->texBaseAddr38, gc->state.tmu_config[tmu].texBaseAddr_3_8 );
   }
   PACKER_WORKAROUND;
 

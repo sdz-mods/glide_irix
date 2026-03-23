@@ -78,6 +78,9 @@
 #include <fxdll.h>
 #include <glide.h>
 #include "fxglide.h"
+#if defined(__sgi__) || defined(IRIX)
+#include <stdio.h>
+#endif
 
 /* externals from gtex.c */
 extern FxU32 _gr_aspect_xlate_table[];
@@ -298,7 +301,32 @@ GR_ENTRY(grTexDownloadMipMapLevelPartial, void, ( GrChipID_t tmu, FxU32 startAdd
   P6FENCE;
   _GlideRoot.stats.texBytes += max_s * (max_t-t+1) * 4;
 
+#if defined(__sgi__) || defined(IRIX)
+  /* IRIX/MACE: wait for chip idle before TMU aperture writes.
+   * The Voodoo1 returns PCI RETRY for texture aperture (SET_TRAM) writes
+   * when its internal memory bus is busy (fastfill rasterizer clearing,
+   * triangle rasterizer active, etc.).  On the O2, MACE counts RETRY
+   * responses; if too many accumulate it enters a permanent fault state
+   * that halts all subsequent PCI transactions.
+   * Polling grSstStatus() (a non-posted PCI read — safe, no RETRY) until
+   * SST_BUSY clears ensures the memory bus is free before the bulk write
+   * loop, preventing the RETRY storm entirely. */
+  {
+    FxU32 _irix_tex_idle_spins = 0;
+    while ((grSstStatus() & SST_BUSY) &&
+           (++_irix_tex_idle_spins < 10000000UL))
+      ;
+  }
+/* MACE (O2/IP32 PCI bridge) byte-swaps every 32-bit PCI write from big-endian
+ * MIPS to little-endian Voodoo1.  For integer register values this is correct.
+ * For packed 8-bit texture data (4 alpha bytes per FxU32 word), the swap
+ * reverses the byte positions within each group of 4 texels, garbling the
+ * texture.  Pre-swapping the value before writing cancels the MACE swap. */
+# define BSWAP32(x) ( ((FxU32)(x) >> 24) | (((FxU32)(x) >> 8) & 0x0000FF00UL) | (((FxU32)(x) << 8) & 0x00FF0000UL) | ((FxU32)(x) << 24) )
+# define SET_TRAM(a,b) GR_SET( *((FxU32 *)(a)) , BSWAP32(b) )
+#else
 # define SET_TRAM(a,b) GR_SET( *((FxU32 *)(a)) , (b) )
+#endif
   /*------------------------------------------------------------
     Handle 8-bit Textures
     ------------------------------------------------------------*/

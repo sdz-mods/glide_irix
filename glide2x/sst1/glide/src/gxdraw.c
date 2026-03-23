@@ -509,8 +509,11 @@ GDBG_INFO((285,"p0,1y: %g %g dpdy: %g\n",dpBC * dxAB,dpAB * dxBC,dpdy));
     }
   }
 
-  /* Draw the triangle by writing the area to the triangleCMD register */
-  P6FENCE_CMD( GR_SETF( hw->FtriangleCMD, _GlideRoot.pool.ftemp1 ) );
+  /* Draw the triangle by writing the area to the triangleCMD register.
+   * On IRIX/MIPS, GR_SETF_SYNC adds a PCI readback to drain the MIPS write
+   * buffer and prevent MACE RETRY accumulation from unfenced vertex writes.
+   * P6FENCE_CMD is a no-op on MIPS (CPUType != 6). */
+  P6FENCE_CMD( GR_SETF_SYNC( hw->FtriangleCMD, _GlideRoot.pool.ftemp1 ) );
   _GlideRoot.stats.trisDrawn++;
 
   GR_CHECK_SIZE();
@@ -843,8 +846,11 @@ GR_DDFUNC(_trisetup_nogradients, FxI32, ( const GrVertex *va, const GrVertex *vb
     }
   }
 
-  /* Draw the triangle by writing the area to the triangleCMD register */
-  P6FENCE_CMD( GR_SETF( hw->FtriangleCMD, _GlideRoot.pool.ftemp1 ) );
+  /* Draw the triangle by writing the area to the triangleCMD register.
+   * On IRIX/MIPS, GR_SETF_SYNC adds a PCI readback to drain the MIPS write
+   * buffer and prevent MACE RETRY accumulation from unfenced vertex writes.
+   * P6FENCE_CMD is a no-op on MIPS (CPUType != 6). */
+  P6FENCE_CMD( GR_SETF_SYNC( hw->FtriangleCMD, _GlideRoot.pool.ftemp1 ) );
   _GlideRoot.stats.trisDrawn++;
 
   GR_CHECK_SIZE();

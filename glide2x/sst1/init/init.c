@@ -37,6 +37,13 @@
 #define _outpw(port, data) pioOutWord(port, data);
 #endif
 
+#if defined(__sgi__)
+/* MIPS has no I/O port instructions; Voodoo is purely MMIO on IRIX */
+#define _inp(port)            (0)
+#define _outp(port, data)     do {} while(0)
+#define _outpw(port, data)    do {} while(0)
+#endif
+
 #ifdef __DJGPP__
 #include <fxdpmi.h>
 #endif
@@ -115,20 +122,35 @@ initEnumHardware( InitHWEnumCallback *cb )
 
     numDevicesInSystem = 0;
     numSst1s = 0;
-    if ( !pciOpen() ) return;
+#ifdef GLIDE_IRIX_DBG_INIT
+    fprintf(stderr, "initEnumHardware: calling pciOpen\n");
+#endif
+    if ( !pciOpen() ) { fprintf(stderr, "initEnumHardware: pciOpen FAILED\n"); return; }
+#ifdef GLIDE_IRIX_DBG_INIT
+    fprintf(stderr, "initEnumHardware: pciOpen OK\n");
+#endif
     for( busLocation = 0; busLocation < MAX_PCI_DEVICES; busLocation++ ) {
       if ( pciDeviceExists( busLocation ) ) {
         FxU32 vId, dId;
         pciGetConfigData( PCI_VENDOR_ID, busLocation, &vId );
         pciGetConfigData( PCI_DEVICE_ID, busLocation, &dId );
 
+#ifdef GLIDE_IRIX_DBG_INIT
+        fprintf(stderr, "initEnumHardware: slot %u vendor=0x%x device=0x%x\n", (unsigned)busLocation, (unsigned)vId, (unsigned)dId);
+#endif
         GDBG_INFO((80, "initEnumHardware:  Vendor:  0x%x  Device:  0x%x\n", vId, dId));
 
 #if defined( SST1 )
+#ifdef GLIDE_IRIX_DBG_INIT
+        fprintf(stderr, "initEnumHardware: SST1 defined, checking TDFXVID=0x121a SST1DID=0x01\n");
+#endif
         if ( (vId == TDFXVID) &&
             (dId == SST1DID) ) { /* Detect SST1 */
           FxU32 *base;
           sst1DeviceInfoStruct info;
+#ifdef GLIDE_IRIX_DBG_INIT
+          fprintf(stderr, "initEnumHardware: SST1 card detected at slot %u\n", (unsigned)busLocation);
+#endif
 
           /* Scanline interleave must be two boards back to back
              if there is a second board in the system,

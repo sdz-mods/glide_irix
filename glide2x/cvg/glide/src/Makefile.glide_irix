@@ -1,0 +1,93 @@
+#!smake
+#
+# Makefile.glide_irix - Build Glide2x sst1 library for IRIX 6.5
+#
+# Place this file in glide2x/sst1/glide/src/
+# fxirix.c and tdfx_irix.h go in swlibs/newpci/pcilib/
+#
+# Usage:
+#   smake -f Makefile.glide_irix
+#
+# Build order:
+#   1. Build swlibs first (see swlibs/newpci/pcilib/)
+#   2. Build sst1init (glide2x/sst1/init/)
+#   3. Then run this Makefile
+# -------------------------------------------------------------------------
+
+FX_GLIDE_HW = sst1
+
+HW_DEFINES_sst1 = -DFX_GLIDE_HW=SST1 -DGLIDE_HW_SST1=1 -DGLIDE_PLATFORM=GLIDE_HW_SST1
+HW_DEFINES_cvg  = -DFX_GLIDE_HW=CVG  -DGLIDE_HW_CVG=1  -DGLIDE_PLATFORM=GLIDE_HW_CVG
+TARGET_sst1 = libglide2x_sst1.so
+TARGET_cvg  = libglide2x_cvg.so
+
+#if $(FX_GLIDE_HW) == "cvg"
+HW_DEFINES = $(HW_DEFINES_cvg)
+TARGET      = $(TARGET_cvg)
+#else
+HW_DEFINES = $(HW_DEFINES_sst1)
+TARGET      = $(TARGET_sst1)
+#endif
+
+CC      = cc
+ABI     = -n32
+MIPSISA = -mips3
+
+DEFINES = $(HW_DEFINES)   \
+          -D__sgi__=1      \
+          -D_MIPSEB=1      \
+          -DIRIX=1         \
+          -DGLIDE_MULTIPLATFORM=0 \
+          -DGLIDE_INIT_HAL=0      \
+          -DFX_DLL_ENABLE=0       \
+          -DGLIDE_DEBUG=0         \
+          -DGLIDE_SPLASH=0
+
+# Include paths
+INCLUDES = -I.                        \
+           -I../../include            \
+           -I../../../swlibs/include  \
+           -I../../../../swlibs/include \
+           -I../../../../swlibs/newpci/pcilib
+
+CFLAGS  = $(ABI) $(MIPSISA) -O2 $(DEFINES) $(INCLUDES) -fullwarn
+LDFLAGS = $(ABI) $(MIPSISA) -shared -rdata_shared
+
+# swlibs and sst1init archives (built separately)
+SWLIBS   = ../../../../swlibs/newpci/pcilib/libfxpci_irix.a
+SST1INIT = ../../init/libsst1init_irix.a
+
+.SUFFIXES: .c .o
+
+all: $(TARGET)
+
+$(TARGET): compile
+	@echo "--- Linking $(TARGET) ---"
+	@OBJS=`ls *.o`; \
+	$(CC) $(LDFLAGS) -o $(TARGET) $$OBJS $(SWLIBS) $(SST1INIT)
+	@echo "Built: $(TARGET)"
+
+# Compile all .c files in this directory except:
+#   fxbldno.c  - build tool, not a library source
+#   fxgasm.c   - build tool
+#   sst96.c    - Voodoo Rush, not SST1
+#   cpudetect.c - x86 CPU detection, not needed on MIPS
+compile:
+	@for f in *.c; do \
+	    case "$$f" in \
+	        fxbldno.c|fxgasm.c|sst96.c|cpudetect.c) \
+	            echo "  skip: $$f"; continue ;; \
+	    esac; \
+	    echo "  cc: $$f"; \
+	    $(CC) $(CFLAGS) -c $$f || exit 1; \
+	done
+
+clean:
+	rm -f *.o $(TARGET_sst1) $(TARGET_cvg)
+
+install: $(TARGET)
+	cp $(TARGET) /usr/lib/$(TARGET)
+	cd /usr/lib && rm -f libglide2x.so && ln -s $(TARGET) libglide2x.so
+	@echo "Installed /usr/lib/libglide2x.so -> $(TARGET)"
+
+.PHONY: all compile clean install

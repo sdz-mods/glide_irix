@@ -1,0 +1,131 @@
+#!smake
+#
+# Makefile.tests_irix - Build glide2x/sst1/glide/tests for IRIX 6.5
+#
+# Place in: glide2x/sst1/glide/tests/
+# Run:      smake -f Makefile.tests_irix
+#
+# Requires: libglide2x.so installed to /usr/lib32/
+# -------------------------------------------------------------------------
+
+CC      = cc
+ABI     = -n32
+MIPSISA = -mips4
+
+DEFINES = -Dsgi=1 -Dlinux
+
+GLIDE_BASE = /usr/sdd/3dfx_irix/glide_irix/glide2x/sst1
+
+INCLUDES = \
+	-I$(GLIDE_BASE)/glide/src \
+	-I$(GLIDE_BASE)/include \
+	-I$(GLIDE_BASE)/incsrc \
+	-I$(GLIDE_BASE)/init \
+	-I/usr/sdd/3dfx_irix/glide_irix/swlibs/include \
+	-I/usr/sdd/3dfx_irix/glide_irix/swlibs/fxmisc
+
+CFLAGS  = $(ABI) $(MIPSISA) -O2 $(DEFINES) $(INCLUDES)
+LDFLAGS = $(ABI) $(MIPSISA) -L/usr/lib32 -lglide2x -lm
+
+# Common support objects (compiled once, shared by all tests)
+COMMON_OBJ = tlib.o linutil.o
+
+# h3dtst01 h3dtst02 require <windows.h> -- not built on IRIX
+
+ALL = \
+	test00 test01 test02 test03 test04 test05 test06 test07 test08 test09 \
+	test10 test11 test12 test13 test14 test15 test16 test17 test18 test19 \
+	test20 test21 test22 test23 test24 test25 test26 test27 test28 test29 \
+	display qatest00 qatest01 \
+	lfbtest \
+	hwinfo \
+	cube
+
+all: $(COMMON_OBJ) plib.o $(ALL)
+
+tlib.o: tlib.c
+	$(CC) $(CFLAGS) -c -o tlib.o tlib.c
+
+linutil.o: linutil.c
+	$(CC) $(CFLAGS) -c -o linutil.o linutil.c
+
+plib.o: plib.c
+	$(CC) $(CFLAGS) -c -o plib.o plib.c
+
+test00: test00.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test00 test00.c $(COMMON_OBJ) $(LDFLAGS)
+test01: test01.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test01 test01.c $(COMMON_OBJ) $(LDFLAGS)
+test02: test02.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test02 test02.c $(COMMON_OBJ) $(LDFLAGS)
+test03: test03.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test03 test03.c $(COMMON_OBJ) $(LDFLAGS)
+test04: test04.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test04 test04.c $(COMMON_OBJ) $(LDFLAGS)
+test05: test05.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test05 test05.c $(COMMON_OBJ) $(LDFLAGS)
+test06: test06.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test06 test06.c $(COMMON_OBJ) $(LDFLAGS)
+test07: test07.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test07 test07.c $(COMMON_OBJ) $(LDFLAGS)
+test08: test08.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test08 test08.c $(COMMON_OBJ) $(LDFLAGS)
+test09: test09.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test09 test09.c $(COMMON_OBJ) $(LDFLAGS)
+test10: test10.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test10 test10.c $(COMMON_OBJ) $(LDFLAGS)
+test11: test11.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test11 test11.c $(COMMON_OBJ) $(LDFLAGS)
+test12: test12.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test12 test12.c $(COMMON_OBJ) $(LDFLAGS)
+test13: test13.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test13 test13.c $(COMMON_OBJ) $(LDFLAGS)
+test14: test14.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test14 test14.c $(COMMON_OBJ) $(LDFLAGS)
+test15: test15.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test15 test15.c $(COMMON_OBJ) $(LDFLAGS)
+test16: test16.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test16 test16.c $(COMMON_OBJ) $(LDFLAGS)
+test17: test17.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test17 test17.c $(COMMON_OBJ) $(LDFLAGS)
+test18: test18.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test18 test18.c $(COMMON_OBJ) $(LDFLAGS)
+test19: test19.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test19 test19.c $(COMMON_OBJ) $(LDFLAGS)
+test20: test20.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test20 test20.c $(COMMON_OBJ) $(LDFLAGS)
+test21: test21.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test21 test21.c $(COMMON_OBJ) $(LDFLAGS)
+test22: test22.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test22 test22.c $(COMMON_OBJ) $(LDFLAGS)
+test23: test23.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test23 test23.c $(COMMON_OBJ) $(LDFLAGS)
+test24: test24.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test24 test24.c $(COMMON_OBJ) $(LDFLAGS)
+test25: test25.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test25 test25.c $(COMMON_OBJ) $(LDFLAGS)
+test26: test26.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test26 test26.c $(COMMON_OBJ) $(LDFLAGS)
+test27: test27.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test27 test27.c $(COMMON_OBJ) $(LDFLAGS)
+test28: test28.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test28 test28.c $(COMMON_OBJ) $(LDFLAGS)
+test29: test29.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o test29 test29.c $(COMMON_OBJ) $(LDFLAGS)
+display: display.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o display display.c $(COMMON_OBJ) $(LDFLAGS)
+qatest00: qatest00.c $(COMMON_OBJ) plib.o
+	$(CC) $(CFLAGS) -o qatest00 qatest00.c $(COMMON_OBJ) plib.o $(LDFLAGS)
+qatest01: qatest01.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o qatest01 qatest01.c $(COMMON_OBJ) $(LDFLAGS)
+lfbtest: lfbtest.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o lfbtest lfbtest.c $(COMMON_OBJ) $(LDFLAGS)
+hwinfo: hwinfo.c
+	$(CC) $(CFLAGS) -o hwinfo hwinfo.c $(LDFLAGS)
+cube: cube.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o cube cube.c $(COMMON_OBJ) $(LDFLAGS)
+
+clean:
+	rm -f $(ALL) $(COMMON_OBJ) plib.o
+
+.PHONY: all clean

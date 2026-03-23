@@ -820,6 +820,18 @@ GWH_INC_WSH;\
 #endif
 
 #if (GLIDE_PLATFORM & GLIDE_HW_SST1)
+#if defined(__sgi__) || defined(IRIX)
+  /* MIPS/IRIX: the x86 PCI packer bug does not exist on MIPS.
+   * Writing to texture memory from userspace after a register write
+   * triggers a Voodoo1 RETRY which MACE (O2 PCI bridge) cannot
+   * auto-retry, causing an immediate bus error.  Disable entirely. */
+  #define PACKER_WORKAROUND_SIZE 0
+  #define PACKER_WORKAROUND
+  #define PACKER_BUGCHECK(a)
+  /* glfb.c: flush shadow LFB buffer to hardware without releasing lock.
+   * Called by grBufferSwap to make per-frame LFB writes visible. */
+  extern void _irix_lfb_presync_flush(void);
+#else
   #define PACKER_WORKAROUND_SIZE 4
 
   #define PACKER_WORKAROUND \
@@ -837,6 +849,7 @@ GWH_INC_WSH;\
       PACKER_WORKAROUND;        \
       lastAddress = (FxU32)a;   \
     }
+#endif
 
 #else
   #define PACKER_WORKAROUND_SIZE 0
@@ -1312,9 +1325,26 @@ if (_GlideRoot.CPUType == 6) {\
 
 #ifndef GDBG_INFO_ON
 #define GET(s)          s
+#if defined(__sgi__) || defined(IRIX)
+/* On MIPS/IRIX every PCI register write must be followed by a volatile
+ * readback to drain the CPU write buffer and wait for the Voodoo1 to
+ * de-assert RETRY.  Without the drain, MACE (O2 PCI host) sees the
+ * RETRY as an unrecoverable bus error.  The volatile pointer cast forces
+ * the compiler to emit an actual LOAD instruction even at -O2. */
+#define SET(d,s)   { (d) = (s);         (void)(*(volatile FxU32 *)&(d)); }
+/* SET16 targets LFB addresses (video RAM, not PCI registers), so no MACE RETRY
+ * drain is needed.  More importantly, the destination may be at a 2-byte-aligned
+ * but not 4-byte-aligned address (e.g. when dst_x is odd in grLfbWriteRegion).
+ * Using a FxU32 readback from such an address causes SIGBUS on MIPS.
+ * Use a FxU16 readback instead: it is always naturally aligned and still
+ * provides the write-buffer drain that prevents any residual ordering issues. */
+#define SET16(d,s) { (d) = (s);         (void)(*(volatile FxU16 *)&(d)); }
+#define SETF(d,s)  { (*(float *)&(d)) = (s); (void)(*(volatile FxU32 *)&(d)); }
+#else
 #define SET(d,s)        d = s
 #define SET16(d,s)      d = s
 #define SETF(d,s)       (*(float *)&(d)) = s
+#endif
 #else
 #undef  GET
 
@@ -1344,7 +1374,32 @@ if (_GlideRoot.CPUType == 6) {\
   #define GR_SET16(d,s) {SET16(d,s); GR_INC_SIZE(2);}
 #endif
 
-
+/*
+ * GR_SET_SYNC: like GR_SET but forces a PCI write-buffer drain after the
+ * write by issuing a volatile readback.  Required on MIPS/IRIX because:
+ *   - MIPS posted writes are async; the write may not complete before the
+ *     next hardware access.
+ *   - Voodoo1 asserts RETRY after register writes while it processes them;
+ *     MACE (O2 PCI host) cannot auto-retry, so RETRY becomes a bus error
+ *     delivered at the next write-buffer drain (typically a syscall).
+ * The readback forces the write to complete synchronously, preventing the
+ * deferred bus error from appearing at an unrelated later point.
+ *
+ * IMPORTANT: the read MUST go through a volatile pointer cast so the
+ * compiler (SGI cc -O2) cannot substitute the just-written value.
+ * Using "volatile FxU32 _rb = (FxU32)(d)" only marks the destination
+ * as volatile; the SOURCE read of (d) is still non-volatile and can be
+ * optimised away.  Cast &(d) to volatile FxU32* and dereference instead.
+ *
+ * On non-IRIX platforms this is identical to GR_SET (zero overhead).
+ */
+#if defined(__sgi__) || defined(IRIX)
+#  define GR_SET_SYNC(d,s)  { GR_SET(d,s);  (void)(*(volatile FxU32 *)&(d)); }
+#  define GR_SETF_SYNC(d,s) { GR_SETF(d,s); (void)(*(volatile FxU32 *)&(d)); }
+#else
+#  define GR_SET_SYNC(d,s)  GR_SET(d,s)
+#  define GR_SETF_SYNC(d,s) GR_SETF(d,s)
+#endif
 
 #define VG96_REGISTER_OFFSET    0x400000
 #define VG96_TEXTURE_OFFSET     0x600000

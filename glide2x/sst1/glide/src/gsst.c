@@ -776,14 +776,29 @@ GR_ENTRY(grSstWinOpen, FxBool, (
   fifoInfo.cpuType = _GlideRoot.CPUType;
 
   rv = initEnableTransport( &fifoInfo );
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "gsst: initEnableTransport done rv=%d\n", rv); fflush(stderr);
+#endif
   if ( !rv ) goto BAILOUT;
 
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "gsst: setting nopCMD\n"); fflush(stderr);
+#endif
   gc->nopCMD = FXFALSE;
 
 #  if   ( GLIDE_PLATFORM & GLIDE_HW_SST1 )
-  grHints( GR_HINT_FIFOCHECKHINT, 
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "gsst: grHints FIFOCHECKHINT lwm=0x%x\n", (unsigned)fifoInfo.hwDep.vgFIFOData.memFifoStatusLwm); fflush(stderr);
+#endif
+  grHints( GR_HINT_FIFOCHECKHINT,
            fifoInfo.hwDep.vgFIFOData.memFifoStatusLwm + 0x100 );
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "gsst: _grReCacheFifo\n"); fflush(stderr);
+#endif
   _grReCacheFifo( 0 );
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "gsst: _grReCacheFifo done fifoFree=%d\n", (int)gc->state.fifoFree); fflush(stderr);
+#endif
 #  elif ( GLIDE_PLATFORM & GLIDE_HW_SST96 )
   gc->hwDep.sst96Dep.writesSinceFence = 0;
 #if (GLIDE_PLATFORM & GLIDE_OS_DOS32) && defined(GLIDE_DEBUG10)
@@ -822,6 +837,9 @@ GR_ENTRY(grSstWinOpen, FxBool, (
     GC Init
     ------------------------------------------------------*/
   GDBG_INFO((gc->myLevel, "  GC Init\n" ));
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "gsst: GC Init xres=%d yres=%d\n", xres, yres); fflush(stderr);
+#endif
   gc->state.screen_width  = xres;
   gc->state.screen_height = yres;
   gc->state.num_buffers   = nColBuffers;
@@ -878,9 +896,18 @@ GR_ENTRY(grSstWinOpen, FxBool, (
     SST_ENZBIAS    | 
     SST_DRAWBUFFER_BACK;
 
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "gsst: 3D State Init\n"); fflush(stderr);
+#endif
   grHints(GR_HINT_ALLOW_MIPMAP_DITHER, 0);
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "gsst: grSstOrigin\n"); fflush(stderr);
+#endif
   grSstOrigin( origin );
-  grAlphaBlendFunction( GR_BLEND_ONE , GR_BLEND_ZERO, 
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "gsst: grAlphaBlend\n"); fflush(stderr);
+#endif
+  grAlphaBlendFunction( GR_BLEND_ONE , GR_BLEND_ZERO,
                         GR_BLEND_ONE, GR_BLEND_ZERO );
   grAlphaTestFunction( GR_CMP_ALWAYS );
   grAlphaTestReferenceValue( 0 );
@@ -909,13 +936,25 @@ GR_ENTRY(grSstWinOpen, FxBool, (
   grDitherMode( GR_DITHER_4x4 );
   grFogMode( GR_FOG_DISABLE );
   grFogColorValue( 0x00000000 );
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "gsst: grGammaCorrection\n"); fflush(stderr);
+#endif
   grGammaCorrectionValue( 1.7f );
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "gsst: guTexMemReset\n"); fflush(stderr);
+#endif
   guTexMemReset();
+#ifdef GLIDE_IRIX_DBG_VERBOSE
+  fprintf(stderr, "gsst: guTexMemReset done, num_tmu=%d\n", (int)gc->num_tmu); fflush(stderr);
+  fprintf(stderr, "gsst: reg_ptr=%p tex_ptr=%p packerFix=0x%lx\n",
+          (void*)gc->reg_ptr, (void*)gc->tex_ptr,
+          (unsigned long)_GlideRoot.packerFixAddress); fflush(stderr);
+#endif
   switch (gc->num_tmu) {
   case 3:
     grTexClampMode( GR_TMU2, GR_TEXTURECLAMP_CLAMP, GR_TEXTURECLAMP_CLAMP );
     grTexDetailControl( GR_TMU2, 0, 1, 1.0F );
-    grTexFilterMode( GR_TMU2, GR_TEXTUREFILTER_POINT_SAMPLED, 
+    grTexFilterMode( GR_TMU2, GR_TEXTUREFILTER_POINT_SAMPLED,
                      GR_TEXTUREFILTER_POINT_SAMPLED );
     grTexLodBiasValue( GR_TMU2, 0.0F);
     grTexMipMapMode( GR_TMU2, GR_MIPMAP_DISABLE, FXFALSE );
@@ -926,7 +965,7 @@ GR_ENTRY(grSstWinOpen, FxBool, (
   case 2:
     grTexClampMode( GR_TMU1, GR_TEXTURECLAMP_CLAMP, GR_TEXTURECLAMP_CLAMP );
     grTexDetailControl( GR_TMU1, 0, 1, 1.0F );
-    grTexFilterMode( GR_TMU1, GR_TEXTUREFILTER_POINT_SAMPLED, 
+    grTexFilterMode( GR_TMU1, GR_TEXTUREFILTER_POINT_SAMPLED,
                      GR_TEXTUREFILTER_POINT_SAMPLED );
     grTexLodBiasValue( GR_TMU1, 0.0F);
     grTexMipMapMode( GR_TMU1, GR_MIPMAP_DISABLE, FXFALSE );
@@ -936,7 +975,7 @@ GR_ENTRY(grSstWinOpen, FxBool, (
   case 1:
     grTexClampMode( GR_TMU0, GR_TEXTURECLAMP_CLAMP, GR_TEXTURECLAMP_CLAMP );
     grTexDetailControl( GR_TMU0, 0, 1, 1.0F );
-    grTexFilterMode( GR_TMU0, GR_TEXTUREFILTER_POINT_SAMPLED, 
+    grTexFilterMode( GR_TMU0, GR_TEXTUREFILTER_POINT_SAMPLED,
                      GR_TEXTUREFILTER_POINT_SAMPLED );
     grTexLodBiasValue( GR_TMU0, 0.0F);
     grTexMipMapMode( GR_TMU0, GR_MIPMAP_DISABLE, FXFALSE );
@@ -959,7 +998,6 @@ GR_ENTRY(grSstWinOpen, FxBool, (
   {
     GrState
       state;
-
     grGlideGetState(&state);
 
 #if (GLIDE_PLATFORM & GLIDE_OS_WIN32)

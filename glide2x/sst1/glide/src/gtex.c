@@ -56,13 +56,13 @@ GR_ENTRY(grTexClampMode, void, ( GrChipID_t tmu, GrTextureClampMode_t s_clamp_mo
   GR_BEGIN("grTexClampMode",88,4+2*PACKER_WORKAROUND_SIZE);
   GDBG_INFO_MORE((gc->myLevel,"(%d, %d,%d)\n",tmu,s_clamp_mode,t_clamp_mode));
   GR_CHECK_TMU(myName, tmu);
-  
+
   texturemode  = gc->state.tmu_config[tmu].textureMode;
   texturemode &= ~( SST_TCLAMPS | SST_TCLAMPT );
   texturemode |=  clampMode;
 
   PACKER_WORKAROUND;
-  GR_SET( SST_TMU(hw,tmu)->textureMode , texturemode );
+  GR_SET_SYNC( SST_TMU(hw,tmu)->textureMode , texturemode );
   PACKER_WORKAROUND;
 
   gc->state.tmu_config[tmu].textureMode = texturemode;
@@ -267,8 +267,8 @@ GR_ENTRY(grTexCombine, void, ( GrChipID_t tmu, GrCombineFunction_t rgb_function,
 
   /* update register */
   PACKER_WORKAROUND;
-  GR_SET( SST_TMU(hw,tmu)->textureMode , texturemode );
-  GR_SET( SST_TMU(hw,tmu)->tLOD, tLod );
+  GR_SET_SYNC( SST_TMU(hw,tmu)->textureMode , texturemode );
+  GR_SET_SYNC( SST_TMU(hw,tmu)->tLOD, tLod );
   PACKER_WORKAROUND;
   gc->state.tmu_config[tmu].textureMode = texturemode;
   gc->state.tmu_config[tmu].tLOD = tLod;
@@ -289,7 +289,7 @@ GR_DDFUNC(_grTexDetailControl, void, ( GrChipID_t tmu, FxU32 detail ))
   GR_CHECK_TMU( "_grTexDetailControl", tmu );
 
   PACKER_WORKAROUND;
-  GR_SET( SST_TMU(hw,tmu)->tDetail , detail );
+  GR_SET_SYNC( SST_TMU(hw,tmu)->tDetail , detail );
   PACKER_WORKAROUND;
   gc->state.tmu_config[tmu].tDetail = detail;
   GR_END();
@@ -313,7 +313,7 @@ GR_ENTRY(grTexFilterMode, void, ( GrChipID_t tmu, GrTextureFilterMode_t minfilte
              (magfilter == GR_TEXTUREFILTER_BILINEAR ? SST_TMAGFILTER : 0);
 
   PACKER_WORKAROUND;
-  GR_SET( SST_TMU(hw,tmu)->textureMode , texMode );
+  GR_SET_SYNC( SST_TMU(hw,tmu)->textureMode , texMode );
   PACKER_WORKAROUND;
   gc->state.tmu_config[tmu].textureMode = texMode;
   GR_END();
@@ -336,7 +336,7 @@ GR_ENTRY(grTexLodBiasValue, void, ( GrChipID_t tmu, float fvalue ))
   tLod |= _grTexFloatLODToFixedLOD( fvalue ) << SST_LODBIAS_SHIFT;
 
   PACKER_WORKAROUND;
-  GR_SET( SST_TMU(hw,tmu)->tLOD , tLod );
+  GR_SET_SYNC( SST_TMU(hw,tmu)->tLOD , tLod );
   PACKER_WORKAROUND;
 
   gc->state.tmu_config[tmu].tLOD = tLod;
@@ -441,8 +441,8 @@ GR_ENTRY(grTexMipMapMode, void, ( GrChipID_t tmu, GrMipMapMode_t mmMode, FxBool 
     --------------------------------------------------------------*/
   PACKER_WORKAROUND;
   hw = SST_TMU(hw,tmu);
-  GR_SET( hw->tLOD , tLod );
-  GR_SET( hw->textureMode , texMode );
+  GR_SET_SYNC( hw->tLOD , tLod );
+  GR_SET_SYNC( hw->textureMode , texMode );
   PACKER_WORKAROUND;
 
   gc->state.tmu_config[tmu].tLOD        = tLod;
@@ -507,7 +507,7 @@ GR_ENTRY(grTexNCCTable, void, ( GrChipID_t tmu, GrNCCTable_t table ))
     texMode &= ~(SST_TNCCSELECT);
 
   PACKER_WORKAROUND;
-  GR_SET( SST_TMU(hw,tmu)->textureMode , texMode );
+  GR_SET_SYNC( SST_TMU(hw,tmu)->textureMode , texMode );
   PACKER_WORKAROUND;
 
   gc->state.tmu_config[tmu].textureMode = texMode;
@@ -589,9 +589,9 @@ GR_ENTRY(grTexSource, void, ( GrChipID_t tmu, FxU32 startAddress, FxU32 evenOdd,
   /* Write relevant registers out to hardware */
   PACKER_WORKAROUND;
   hw = SST_TMU(hw,tmu);
-  GR_SET( hw->texBaseAddr , baseAddress );
-  GR_SET( hw->textureMode , texMode );
-  GR_SET( hw->tLOD , tLod );
+  GR_SET_SYNC( hw->texBaseAddr , baseAddress );
+  GR_SET_SYNC( hw->textureMode , texMode );
+  GR_SET_SYNC( hw->tLOD , tLod );
   PACKER_WORKAROUND;
   
   /* update shadows */
@@ -634,7 +634,7 @@ GR_ENTRY(grTexMultibase, void, ( GrChipID_t tmu, FxBool enable ))
     Write State To Hardware and Update Glide Shadow State
     --------------------------------------------------------------*/
   PACKER_WORKAROUND;
-  GR_SET( SST_TMU(hw,tmu)->tLOD , tLod );
+  GR_SET_SYNC( SST_TMU(hw,tmu)->tLOD , tLod );
   PACKER_WORKAROUND;
 
   gc->state.tmu_config[tmu].tLOD = tLod;
@@ -687,8 +687,8 @@ GR_ENTRY(grTexMultibaseAddress, void, ( GrChipID_t tmu, GrTexBaseRange_t range, 
                                            info->aspectRatio,
                                            info->format,
                                            evenOdd ) >> 3;
-      GR_SET( hw->texBaseAddr , baseAddress );
-      gc->state.tmu_config[tmu].texBaseAddr = baseAddress; 
+      GR_SET_SYNC( hw->texBaseAddr , baseAddress );
+      gc->state.tmu_config[tmu].texBaseAddr = baseAddress;
       break;
     case GR_TEXBASE_128:
       baseAddress = _grTexCalcBaseAddress( startAddress,
@@ -696,8 +696,8 @@ GR_ENTRY(grTexMultibaseAddress, void, ( GrChipID_t tmu, GrTexBaseRange_t range, 
                                            info->aspectRatio,
                                            info->format,
                                            evenOdd ) >> 3;
-      GR_SET( hw->texBaseAddr1 , baseAddress );
-      gc->state.tmu_config[tmu].texBaseAddr_1 = baseAddress; 
+      GR_SET_SYNC( hw->texBaseAddr1 , baseAddress );
+      gc->state.tmu_config[tmu].texBaseAddr_1 = baseAddress;
       break;
     case GR_TEXBASE_64:
       baseAddress = _grTexCalcBaseAddress( startAddress,
@@ -705,8 +705,8 @@ GR_ENTRY(grTexMultibaseAddress, void, ( GrChipID_t tmu, GrTexBaseRange_t range, 
                                            info->aspectRatio,
                                            info->format,
                                            evenOdd ) >> 3;
-      GR_SET( hw->texBaseAddr2 , baseAddress );
-      gc->state.tmu_config[tmu].texBaseAddr_2 = baseAddress; 
+      GR_SET_SYNC( hw->texBaseAddr2 , baseAddress );
+      gc->state.tmu_config[tmu].texBaseAddr_2 = baseAddress;
       break;
     case GR_TEXBASE_32_TO_1:
       baseAddress = _grTexCalcBaseAddress( startAddress,
@@ -714,8 +714,8 @@ GR_ENTRY(grTexMultibaseAddress, void, ( GrChipID_t tmu, GrTexBaseRange_t range, 
                                            info->aspectRatio,
                                            info->format,
                                            evenOdd ) >> 3;
-      GR_SET( hw->texBaseAddr38 , baseAddress );
-      gc->state.tmu_config[tmu].texBaseAddr_3_8 = baseAddress; 
+      GR_SET_SYNC( hw->texBaseAddr38 , baseAddress );
+      gc->state.tmu_config[tmu].texBaseAddr_3_8 = baseAddress;
       break;
   }
   PACKER_WORKAROUND;
@@ -742,7 +742,7 @@ _grTexForceLod( GrChipID_t tmu, int value )
   tLod |= SST_TLOD_MINMAX_INT(value,value);
 
   PACKER_WORKAROUND;
-  GR_SET( SST_TMU(hw,tmu)->tLOD , tLod );
+  GR_SET_SYNC( SST_TMU(hw,tmu)->tLOD , tLod );
   PACKER_WORKAROUND;
   gc->state.tmu_config[tmu].tLOD = tLod;
 } /* _grTexForceLod */

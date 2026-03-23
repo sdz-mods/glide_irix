@@ -91,7 +91,7 @@
  * We don't want any of this DLL junk for DJGPP or UNIX
  * so undo what is done above.
  */
-#if defined(__DJGPP__) || defined(__unix__) || defined(macintosh)
+#if defined(__DJGPP__) || defined(__unix__) || defined(macintosh) || defined(__sgi__)
   #ifdef FX_CALL
     #undef FX_CALL
   #endif

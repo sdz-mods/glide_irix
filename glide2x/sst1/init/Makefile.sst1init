@@ -1,0 +1,105 @@
+#!smake
+#
+# Makefile.sst1init - Build glide2x/sst1/init for IRIX 6.5
+#
+# Place in: glide2x/sst1/init/
+# Run:      smake -f Makefile.sst1init
+#
+# Output:   libsst1init_irix.a
+# Requires: swlibs/newpci/pcilib/libfxpci_irix.a (build that first)
+# -------------------------------------------------------------------------
+
+CC     = cc
+ABI    = -n32
+MIPSISA = -mips4
+
+DEFINES = -D__sgi__=1   \
+          -D_MIPSEB=1   \
+          -DIRIX=1      \
+          -DGLIDE_HW_SST1=1 \
+          -DSST1=1          \
+          -DINIT_LINUX=1    \
+          -DFX_DLL_ENABLE=0 \
+          -DGLIDE_IRIX_DBG_INIT=1
+          # Add -DGLIDE_IRIX_DBG_VERBOSE=1 to enable verbose init debug output
+
+INCLUDES = -I. \
+           -Iinitvg \
+           -I../incsrc \
+           -I../../../swlibs/fxmisc \
+           -I../../../swlibs/fxmemmap \
+           -I../../../swlibs/newpci/pcilib \
+           -I../../../swlibs/include
+
+CFLAGS = $(ABI) $(MIPSISA) -O2 $(DEFINES) $(INCLUDES) -fullwarn
+
+AR     = ar
+TARGET = libsst1init_irix.a
+
+# init.c is the top-level init dispatcher
+# initvg/ contains the actual Voodoo1 hardware init
+SRCS_TOP  = init.c vgdrvr.c gdebug.c
+SRCS_INITVG = initvg/sst1init.c \
+              initvg/dac.c      \
+              initvg/gamma.c    \
+              initvg/info.c     \
+              initvg/parse.c    \
+              initvg/print.c    \
+              initvg/sli.c      \
+              initvg/util.c     \
+              initvg/video.c
+
+SRCS = $(SRCS_TOP) $(SRCS_INITVG)
+OBJS = init.o vgdrvr.o gdebug.o \
+       sst1init.o dac.o gamma.o info.o parse.o print.o sli.o util.o video.o
+
+.SUFFIXES: .c .o
+
+all: $(TARGET)
+
+$(TARGET): $(OBJS)
+	ar rcs $(TARGET) $(OBJS)
+	@echo "Built: $(TARGET)"
+
+# Top-level sources
+init.o:    init.c
+	$(CC) $(CFLAGS) -c init.c -o init.o
+
+vgdrvr.o:  vgdrvr.c
+	$(CC) $(CFLAGS) -c vgdrvr.c -o vgdrvr.o
+
+gdebug.o:  gdebug.c
+	$(CC) $(CFLAGS) -c gdebug.c -o gdebug.o
+
+# initvg sources - compile from subdirectory
+sst1init.o: initvg/sst1init.c
+	$(CC) $(CFLAGS) -Iinitvg -c initvg/sst1init.c -o sst1init.o
+
+dac.o:     initvg/dac.c
+	$(CC) $(CFLAGS) -Iinitvg -c initvg/dac.c -o dac.o
+
+gamma.o:   initvg/gamma.c
+	$(CC) $(CFLAGS) -Iinitvg -c initvg/gamma.c -o gamma.o
+
+info.o:    initvg/info.c
+	$(CC) $(CFLAGS) -Iinitvg -c initvg/info.c -o info.o
+
+parse.o:   initvg/parse.c
+	$(CC) $(CFLAGS) -Iinitvg -c initvg/parse.c -o parse.o
+
+print.o:   initvg/print.c
+	$(CC) $(CFLAGS) -Iinitvg -c initvg/print.c -o print.o
+
+sli.o:     initvg/sli.c
+	$(CC) $(CFLAGS) -Iinitvg -c initvg/sli.c -o sli.o
+
+util.o:    initvg/util.c
+	$(CC) $(CFLAGS) -Iinitvg -c initvg/util.c -o util.o
+
+video.o:   initvg/video.c
+	$(CC) $(CFLAGS) -Iinitvg -c initvg/video.c -o video.o
+
+clean:
+	rm -f $(OBJS) $(TARGET)
+
+.PHONY: all clean

@@ -146,6 +146,9 @@ p6Fence(void);
 # define P6FENCE asm volatile ("mf.a" ::: "memory");
 #elif defined(__GNUC__) && defined(__alpha__)
 # define P6FENCE asm volatile("mb" ::: "memory");
+#elif defined(__sgi__) || defined(__mips__)
+/* MIPSpro does not support inline asm; MACE PCI bridge serializes MMIO writes */
+# define P6FENCE ((void)0)
 #else
 #error "P6 Fencing in-line assembler code needs to be added for this compiler"
 #endif
