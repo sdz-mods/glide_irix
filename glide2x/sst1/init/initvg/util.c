@@ -29,6 +29,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#if defined(__sgi__) || defined(IRIX)
+#  include <unistd.h>   /* usleep() — MACE PCI RETRY fix */
+#endif
 #include <sst.h>
 #define FX_DLL_DEFINITION
 #include <fxdll.h>
@@ -88,6 +91,23 @@ void sst1InitIdleLoop(FxU32 *sstbase)
 
     ISET(sst->nopCMD, 0x0);
     cntr = 0;
+#if defined(__sgi__) || defined(IRIX)
+    /* MACE fix: original has no cap and no sleep — rapid status reads
+     * trigger the MACE PCI RETRY fault on the SGI O2.  Cap at 1000
+     * polls × 1ms = 1s max; sleep 1ms between each poll. */
+    {
+        int _irix_idle_spins = 0;
+        while(1) {
+            if(!(sst1InitReturnStatus(sstbase) & SST_BUSY)) {
+                if(++cntr >= 3)
+                    break;
+            } else
+                cntr = 0;
+            if (++_irix_idle_spins >= 1000) break;
+            usleep(1000);
+        }
+    }
+#else
     while(1) {
         if(!(sst1InitReturnStatus(sstbase) & SST_BUSY)) {
             if(++cntr >= 3)
@@ -95,6 +115,7 @@ void sst1InitIdleLoop(FxU32 *sstbase)
         } else
             cntr = 0;
     }
+#endif
 }
 
 /*
@@ -116,6 +137,20 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitIdleFBI(FxU32 *sstbase)
 
     ISET(sst->nopCMD, 0x0);
     cntr = 0;
+#if defined(__sgi__) || defined(IRIX)
+    {
+        int _irix_idle_spins = 0;
+        while(1) {
+            if(!(sst1InitReturnStatus(sstbase) & SST_FBI_BUSY)) {
+                if(++cntr >= 3)
+                    break;
+            } else
+                cntr = 0;
+            if (++_irix_idle_spins >= 1000) break;
+            usleep(1000);
+        }
+    }
+#else
     while(1) {
         if(!(sst1InitReturnStatus(sstbase) & SST_FBI_BUSY)) {
             if(++cntr >= 3)
@@ -123,6 +158,7 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitIdleFBI(FxU32 *sstbase)
         } else
             cntr = 0;
     }
+#endif
     return(FXTRUE);
 }
 
@@ -147,6 +183,20 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitIdleFBINoNOP(FxU32 *sstbase)
 
     /* ISET(sst->nopCMD, 0x0); */
     cntr = 0;
+#if defined(__sgi__) || defined(IRIX)
+    {
+        int _irix_idle_spins = 0;
+        while(1) {
+            if(!(sst1InitReturnStatus(sstbase) & SST_FBI_BUSY)) {
+                if(++cntr > 5)
+                    break;
+            } else
+                cntr = 0;
+            if (++_irix_idle_spins >= 1000) break;
+            usleep(1000);
+        }
+    }
+#else
     while(1) {
         if(!(sst1InitReturnStatus(sstbase) & SST_FBI_BUSY)) {
             if(++cntr > 5)
@@ -154,6 +204,7 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitIdleFBINoNOP(FxU32 *sstbase)
         } else
             cntr = 0;
     }
+#endif
     return(FXTRUE);
 }
 
@@ -344,6 +395,14 @@ FX_EXPORT void FX_CSTYLE sst1InitWrite32(FxU32 *addr, FxU32 data)
     P6FENCE;
     *addr = data;
     P6FENCE;
+#if defined(__sgi__) || defined(IRIX)
+    /* MACE fix: P6FENCE is ((void)0) on IRIX/MIPS (no inline asm support).
+     * Without a serialization point, consecutive ISET writes accumulate
+     * RETRY responses and trigger the MACE PCI fault that hangs the system.
+     * Issue a volatile readback to force MACE to drain the write buffer,
+     * identical to the IRIX SET macro used for rendering register writes. */
+    (void)(*(volatile FxU32 *)addr);
+#endif
 }
 
 /*

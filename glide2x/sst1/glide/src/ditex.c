@@ -542,7 +542,7 @@ GR_DIENTRY(grTexDownloadMipMap, void,
                       " cannot span 2 Mbyte boundary",FXTRUE);
 
   src_base = (char *)info->data;
-  
+
   /*---------------------------------------------------------------
     Download one mipmap level at a time
     ---------------------------------------------------------------*/

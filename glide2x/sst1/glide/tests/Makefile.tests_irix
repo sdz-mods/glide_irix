@@ -39,7 +39,10 @@ ALL = \
 	display qatest00 qatest01 \
 	lfbtest \
 	hwinfo \
-	cube
+	cube \
+	texbench \
+	badtri_test \
+	bad_cube
 
 all: $(COMMON_OBJ) plib.o $(ALL)
 
@@ -124,6 +127,15 @@ hwinfo: hwinfo.c
 	$(CC) $(CFLAGS) -o hwinfo hwinfo.c $(LDFLAGS)
 cube: cube.c $(COMMON_OBJ)
 	$(CC) $(CFLAGS) -o cube cube.c $(COMMON_OBJ) $(LDFLAGS)
+
+texbench: texbench.c
+	$(CC) $(CFLAGS) -o texbench texbench.c $(LDFLAGS)
+
+badtri_test: badtri_test.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o badtri_test badtri_test.c $(COMMON_OBJ) $(LDFLAGS)
+
+bad_cube: bad_cube.c $(COMMON_OBJ)
+	$(CC) $(CFLAGS) -o bad_cube bad_cube.c $(COMMON_OBJ) $(LDFLAGS)
 
 clean:
 	rm -f $(ALL) $(COMMON_OBJ) plib.o

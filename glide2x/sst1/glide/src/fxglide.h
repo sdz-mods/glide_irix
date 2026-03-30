@@ -1023,6 +1023,32 @@ _grSst96CheckFifoData(void);
 
 #if (GLIDE_PLATFORM & GLIDE_HW_SST1)
 /* NOTE: fifoFree is the number of entries, each is 8 bytes */
+#if defined(__sgi__) || defined(IRIX)
+/*
+ * IRIX/MACE: The SGI O2 MACE PCI bridge counts every PCI RETRY response
+ * from the Voodoo1 memory FIFO; after enough accumulate it enters a
+ * permanent fault that halts all PCI traffic (system freeze).  The cached
+ * SW fifoFree estimate only re-reads hardware when it goes below zero, which
+ * can be AFTER the Voodoo1 has already reached its internal high-water mark
+ * and started asserting RETRY.  To prevent any RETRY on writes we must read
+ * the actual hardware FIFO level before every write batch and only proceed
+ * when the level confirms enough space exists.  The status register is
+ * always readable without asserting RETRY, so this is safe.
+ *
+ * Performance cost: one PCI read (~5µs) per GR_SET_EXPECTED_SIZE call
+ * (~5-10 calls per triangle setup).  This is a deliberate trade-off for
+ * correctness on MACE.
+ */
+#define GR_CHECK_FOR_ROOM(n) \
+{ \
+  _grReCacheFifo(n); \
+  while (gc->state.fifoFree < 0) { \
+    _GlideRoot.stats.fifoSpins++; \
+    usleep(1000); \
+    _grReCacheFifo(n); \
+  } \
+}
+#else
 #define GR_CHECK_FOR_ROOM(n) \
 { \
   FxI32 fifoFree = gc->state.fifoFree - (n); \
@@ -1030,6 +1056,7 @@ _grSst96CheckFifoData(void);
     fifoFree = _grSpinFifo(n); \
   gc->state.fifoFree = fifoFree;\
 }
+#endif /* __sgi__ || IRIX */
 #elif (GLIDE_PLATFORM & GLIDE_HW_SST96)
 /* NOTE: fifoSize is in bytes, and each fifo entry is 8 bytes.  Since
    the fifoSize element of the sst96Dep data structure must be
@@ -1326,20 +1353,36 @@ if (_GlideRoot.CPUType == 6) {\
 #ifndef GDBG_INFO_ON
 #define GET(s)          s
 #if defined(__sgi__) || defined(IRIX)
-/* On MIPS/IRIX every PCI register write must be followed by a volatile
- * readback to drain the CPU write buffer and wait for the Voodoo1 to
- * de-assert RETRY.  Without the drain, MACE (O2 PCI host) sees the
- * RETRY as an unrecoverable bus error.  The volatile pointer cast forces
- * the compiler to emit an actual LOAD instruction even at -O2. */
-#define SET(d,s)   { (d) = (s);         (void)(*(volatile FxU32 *)&(d)); }
-/* SET16 targets LFB addresses (video RAM, not PCI registers), so no MACE RETRY
- * drain is needed.  More importantly, the destination may be at a 2-byte-aligned
- * but not 4-byte-aligned address (e.g. when dst_x is odd in grLfbWriteRegion).
- * Using a FxU32 readback from such an address causes SIGBUS on MIPS.
- * Use a FxU16 readback instead: it is always naturally aligned and still
- * provides the write-buffer drain that prevents any residual ordering issues. */
-#define SET16(d,s) { (d) = (s);         (void)(*(volatile FxU16 *)&(d)); }
-#define SETF(d,s)  { (*(float *)&(d)) = (s); (void)(*(volatile FxU32 *)&(d)); }
+/*
+ * On MIPS/IRIX, use the MIPS SYNC instruction to drain the CPU write buffer
+ * instead of per-register PCI readbacks.
+ *
+ * WHY NOT readbacks: when Voodoo1 has a write to address X pending in its
+ * memory FIFO, a READ from address X causes the FIFO controller to process
+ * all entries up to that write before returning.  While the FIFO drains,
+ * Voodoo1 asserts RETRY on the read.  The MACE PCI bridge (SGI O2) has a
+ * finite RETRY tolerance; accumulating ~50,000 RETRY responses (25 per
+ * triangle × hundreds of triangles per frame × many frames) triggers a
+ * permanent MACE fault that stops all PCI traffic.  This is the root cause
+ * of the system freeze seen during Q2 rendering.
+ *
+ * WHY SYNC is sufficient: MIPS R10000 guarantees strong ordering of stores
+ * to non-cacheable (UC) memory — PCI MMIO writes are issued to the external
+ * bus interface in program order without CPU reordering.  SYNC flushes the
+ * CPU's internal store buffer to the MACE input without issuing any PCI reads.
+ * MACE then serialises and issues the PCI writes; Voodoo1 buffers them in its
+ * memory FIFO (capacity 31K–57K entries) without asserting RETRY.  No PCI
+ * reads = no readback-induced RETRY = no MACE fault accumulation.
+ *
+ * SET16 targets LFB (video RAM) addresses which are not FIFO-backed and do
+ * not cause RETRY, but may be at 2-byte-aligned non-4-byte-aligned addresses.
+ * A FxU16 readback is safe there; keep it to maintain write visibility for
+ * any code that reads LFB data back immediately after writing.
+ */
+extern void irix_sync(void); /* MIPS SYNC wrapper in irix_sync.s */
+#define SET(d,s)   { (d) = (s);              irix_sync(); }
+#define SET16(d,s) { (d) = (s);              (void)(*(volatile FxU16 *)&(d)); }
+#define SETF(d,s)  { (*(float *)&(d)) = (s); irix_sync(); }
 #else
 #define SET(d,s)        d = s
 #define SET16(d,s)      d = s
@@ -1375,27 +1418,22 @@ if (_GlideRoot.CPUType == 6) {\
 #endif
 
 /*
- * GR_SET_SYNC: like GR_SET but forces a PCI write-buffer drain after the
- * write by issuing a volatile readback.  Required on MIPS/IRIX because:
- *   - MIPS posted writes are async; the write may not complete before the
- *     next hardware access.
- *   - Voodoo1 asserts RETRY after register writes while it processes them;
- *     MACE (O2 PCI host) cannot auto-retry, so RETRY becomes a bus error
- *     delivered at the next write-buffer drain (typically a syscall).
- * The readback forces the write to complete synchronously, preventing the
- * deferred bus error from appearing at an unrelated later point.
+ * GR_SET_SYNC / GR_SETF_SYNC: like GR_SET/GR_SETF but ensure the write is
+ * committed before the caller issues a subsequent read (e.g. grSstStatus).
  *
- * IMPORTANT: the read MUST go through a volatile pointer cast so the
- * compiler (SGI cc -O2) cannot substitute the just-written value.
- * Using "volatile FxU32 _rb = (FxU32)(d)" only marks the destination
- * as volatile; the SOURCE read of (d) is still non-volatile and can be
- * optimised away.  Cast &(d) to volatile FxU32* and dereference instead.
+ * On MIPS/IRIX we use irix_sync() (MIPS SYNC instruction) to drain the CPU
+ * store buffer to MACE.  A readback from a FIFO-backed register address was
+ * the previous approach but causes RETRY responses (see SET/SETF comment above).
+ * SYNC is sufficient: the subsequent grSstStatus/grSstIdle read — being an
+ * uncached load — already serialises with all prior uncached stores on R10000,
+ * so the command register write is guaranteed to reach MACE before the status
+ * read issues on the PCI bus.
  *
- * On non-IRIX platforms this is identical to GR_SET (zero overhead).
+ * On non-IRIX platforms these are identical to GR_SET/GR_SETF (zero overhead).
  */
 #if defined(__sgi__) || defined(IRIX)
-#  define GR_SET_SYNC(d,s)  { GR_SET(d,s);  (void)(*(volatile FxU32 *)&(d)); }
-#  define GR_SETF_SYNC(d,s) { GR_SETF(d,s); (void)(*(volatile FxU32 *)&(d)); }
+#  define GR_SET_SYNC(d,s)  GR_SET(d,s)
+#  define GR_SETF_SYNC(d,s) GR_SETF(d,s)
 #else
 #  define GR_SET_SYNC(d,s)  GR_SET(d,s)
 #  define GR_SETF_SYNC(d,s) GR_SETF(d,s)

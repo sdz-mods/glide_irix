@@ -145,12 +145,13 @@ _grSpinFifo( FxI32 n )
   do {
     _GlideRoot.stats.fifoSpins++;
 #if defined(__sgi__) || defined(IRIX)
-    /* IRIX/MACE: sleep between polls to prevent PCI RETRY storm.
+    /* IRIX/MACE: sleep 1ms between polls to prevent PCI RETRY storm.
      * Rapid reads of hw->status while the Voodoo1 FIFO is full generate
      * RETRY responses; too many in succession put MACE in a fault state
-     * that stops all PCI transactions.  usleep(1) breaks the tight loop
-     * and gives the Voodoo1 time to drain its FIFO before the next poll. */
-    usleep(1);
+     * that stops all PCI transactions.  usleep(1) was too fast (~500K reads/s)
+     * and accumulated enough RETRYs to trigger the fault.  usleep(1000) matches
+     * the fix applied to grBufferSwap and grBufferClear (1ms between polls). */
+    usleep(1000);
 #endif
     _grReCacheFifo( n );
     if (++spins >= 10000000UL) {

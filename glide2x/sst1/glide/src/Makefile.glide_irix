@@ -51,7 +51,7 @@ PCILIB   = ../../../../swlibs/newpci/pcilib/libfxpci_irix.a
 SST1INIT = ../../init/libsst1init_irix.a
 TARGET   = libglide2x.so
 
-.SUFFIXES: .c .o
+.SUFFIXES: .c .s .o
 
 all: fxinline.h $(TARGET)
 
@@ -72,7 +72,7 @@ $(TARGET): compile
 	rm -rf /tmp/glide_ar
 	@echo "Built: $(TARGET)"
 
-# Compile all .c files, skipping non-library and x86-specific files
+# Compile all .c and .s files, skipping non-library and x86-specific files
 compile: fxinline.h
 	@for f in *.c; do \
 	    case "$$f" in \
@@ -81,6 +81,10 @@ compile: fxinline.h
 	    esac; \
 	    echo "  cc: $$f"; \
 	    $(CC) $(CFLAGS) -c $$f || exit 1; \
+	done
+	@for f in *.s; do \
+	    echo "  as: $$f"; \
+	    $(CC) $(ABI) $(MIPSISA) -c $$f || exit 1; \
 	done
 
 install: $(TARGET)

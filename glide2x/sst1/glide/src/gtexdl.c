@@ -80,6 +80,8 @@
 #include "fxglide.h"
 #if defined(__sgi__) || defined(IRIX)
 #include <stdio.h>
+#include <sys/types.h>
+#include <unistd.h>
 #endif
 
 /* externals from gtex.c */
@@ -303,29 +305,54 @@ GR_ENTRY(grTexDownloadMipMapLevelPartial, void, ( GrChipID_t tmu, FxU32 startAdd
 
 #if defined(__sgi__) || defined(IRIX)
   /* IRIX/MACE: wait for chip idle before TMU aperture writes.
-   * The Voodoo1 returns PCI RETRY for texture aperture (SET_TRAM) writes
-   * when its internal memory bus is busy (fastfill rasterizer clearing,
-   * triangle rasterizer active, etc.).  On the O2, MACE counts RETRY
-   * responses; if too many accumulate it enters a permanent fault state
-   * that halts all subsequent PCI transactions.
-   * Polling grSstStatus() (a non-posted PCI read — safe, no RETRY) until
-   * SST_BUSY clears ensures the memory bus is free before the bulk write
-   * loop, preventing the RETRY storm entirely. */
-  {
-    FxU32 _irix_tex_idle_spins = 0;
-    while ((grSstStatus() & SST_BUSY) &&
-           (++_irix_tex_idle_spins < 10000000UL))
-      ;
-  }
-/* MACE (O2/IP32 PCI bridge) byte-swaps every 32-bit PCI write from big-endian
- * MIPS to little-endian Voodoo1.  For integer register values this is correct.
- * For packed 8-bit texture data (4 alpha bytes per FxU32 word), the swap
- * reverses the byte positions within each group of 4 texels, garbling the
- * texture.  Pre-swapping the value before writing cancels the MACE swap. */
-# define BSWAP32(x) ( ((FxU32)(x) >> 24) | (((FxU32)(x) >> 8) & 0x0000FF00UL) | (((FxU32)(x) << 8) & 0x00FF0000UL) | ((FxU32)(x) << 24) )
-# define SET_TRAM(a,b) GR_SET( *((FxU32 *)(a)) , BSWAP32(b) )
+   * The Voodoo1 returns PCI RETRY for BOTH texture aperture (SET_TRAM) writes
+   * AND status register reads when its internal memory bus is busy.
+   * On the O2, MACE counts RETRY responses; if too many accumulate in rapid
+   * succession it enters a fault state that halts all subsequent PCI
+   * transactions — causing texture uploads during active rendering to stall
+   * for many minutes (the root cause of the 17-minute Q2 map load time).
+   *
+   * Fix (mirrors grBufferSwap IRIX fix):
+   *   - sleep 1 ms between polls so MACE never sees a RETRY burst
+   *   - cap at 10 polls (10 ms max) — chip is typically idle within 1-5 ms;
+   *     10 ms is a safe upper bound without stalling uploads for hundreds of ms
+   * Prior cap was 200 (200 ms) which caused ~416 ms per texture upload in Q2
+   * (spin-wait fires ~2x per upload × 200 ms = 32 s/frame for 78 textures). */
+  /* IRIX/MACE: use the full MACE-safe idle (1ms poll, 1000-poll cap) rather
+   * than the old 10ms cap.  Texture aperture writes bypass the memory FIFO
+   * and go directly to Voodoo1 DRAM; the card asserts PCI RETRY for every
+   * write while the TMU memory bus is active.  A 10ms cap is not enough when
+   * the chip is still rendering the previous frame (typical render time can
+   * exceed 10ms at low clock speeds).  grSstIdle() uses sst1InitIdleLoop()
+   * which already has the 1ms/1000-poll MACE fix from initvg/util.c. */
+  grSstIdle();
+/* MACE (O2/IP32 PCI bridge) performs a full 4-byte endian reversal on every
+ * 32-bit PCI write (big-endian MIPS -> little-endian Voodoo1).
+ *
+ * 8-bit textures (4 texels per FxU32):
+ *   Big-endian read = (T0<<24|T1<<16|T2<<8|T3).  MACE reversal scrambles all
+ *   four byte positions.  BSWAP32 pre-reverses so MACE cancels it: correct.
+ *
+ * 16-bit textures, width>=2 (2 texels per FxU32):
+ *   Big-endian read = (P_even<<16 | P_odd).  BSWAP32 byte-reverses each
+ *   individual 16-bit texel -- completely wrong, causing ARGB_4444 alpha bits
+ *   to shift and fail the alpha test (white 2D textures) and RGB_565 colors
+ *   to garble (weird 3D tint).
+ *   Fix: HSWAP32 swaps the two 16-bit halfwords to (P_odd<<16|P_even); MACE
+ *   then delivers [P_even_lo, P_even_hi, P_odd_lo, P_odd_hi] = correct.
+ *
+ * 16-bit textures, width=1 (single texel zero-extended to 0x0000P0):
+ *   MACE reversal of 0x0000P0 gives Voodoo [P_lo, P_hi, 0, 0] = P at texel0.
+ *   No pre-swap needed; pass value through unchanged (SET_TRAM16_1). */
+# define BSWAP32(x)  ( ((FxU32)(x) >> 24) | (((FxU32)(x) >> 8) & 0x0000FF00UL) | (((FxU32)(x) << 8) & 0x00FF0000UL) | ((FxU32)(x) << 24) )
+# define HSWAP32(x)  ( (((FxU32)(x)) >> 16) | (((FxU32)(x)) << 16) )
+# define SET_TRAM8(a,b)    GR_SET( *((FxU32 *)(a)) , BSWAP32(b) )
+# define SET_TRAM16(a,b)   GR_SET( *((FxU32 *)(a)) , HSWAP32(b) )
+# define SET_TRAM16_1(a,b) GR_SET( *((FxU32 *)(a)) , (FxU32)(b) )
 #else
-# define SET_TRAM(a,b) GR_SET( *((FxU32 *)(a)) , (b) )
+# define SET_TRAM8(a,b)    GR_SET( *((FxU32 *)(a)) , (b) )
+# define SET_TRAM16(a,b)   GR_SET( *((FxU32 *)(a)) , (b) )
+# define SET_TRAM16_1(a,b) GR_SET( *((FxU32 *)(a)) , (b) )
 #endif
   /*------------------------------------------------------------
     Handle 8-bit Textures
@@ -336,25 +363,25 @@ GR_ENTRY(grTexDownloadMipMapLevelPartial, void, ( GrChipID_t tmu, FxU32 startAdd
     case 1:                         /* 1xN texture */
       tex_address = tmu_baseaddress + ( t << 9 );
       for ( ; t <= max_t; t++) {
-        SET_TRAM( tex_address, *(const FxU8*) src8);
+        SET_TRAM8( tex_address, *(const FxU8*) src8);
         src8 += 1;
-        tex_address += (1 << 9); 
+        tex_address += (1 << 9);
       }
       break;
 
     case 2:                         /* 2xN texture */
       tex_address = tmu_baseaddress + ( t << 9 );
       for ( ; t <= max_t; t++) {
-        SET_TRAM( tex_address, *(const FxU16*) src8);
+        SET_TRAM8( tex_address, *(const FxU16*) src8);
         src8 += 2;
-        tex_address += (1 << 9); 
+        tex_address += (1 << 9);
       }
       break;
 
     case 4:                         /* 4xN texture */
       tex_address = tmu_baseaddress + ( t << 9 );
       for ( ; t <= max_t; t++) {
-        SET_TRAM( tex_address, *(const FxU32*) src8);
+        SET_TRAM8( tex_address, *(const FxU32*) src8);
         src8 += 4;
         tex_address += (1 << 9); 
       }
@@ -372,12 +399,12 @@ GR_ENTRY(grTexDownloadMipMapLevelPartial, void, ( GrChipID_t tmu, FxU32 startAdd
 
             t0 = * (const FxU32 *) (src8    );
             t1 = * (const FxU32 *) (src8 + 4);
-            SET_TRAM( tex_address    , t0);
-            SET_TRAM( tex_address + 8, t1);
+            SET_TRAM8( tex_address    , t0);
+            SET_TRAM8( tex_address + 8, t1);
             tex_address += 16;
             src8 += 8;
           }
-        } 
+        }
       } else {                      /* New TMUs    */
 #if (GLIDE_PLATFORM & GLIDE_HW_SST96)
 
@@ -432,17 +459,17 @@ GR_ENTRY(grTexDownloadMipMapLevelPartial, void, ( GrChipID_t tmu, FxU32 startAdd
 
             t0 = * (const FxU32 *) (src8    );
             t1 = * (const FxU32 *) (src8 + 4);
-            SET_TRAM( tex_address    , t0);
-            SET_TRAM( tex_address + 4, t1);
+            SET_TRAM8( tex_address    , t0);
+            SET_TRAM8( tex_address + 4, t1);
             tex_address += 8;
             src8 += 8;
           }
-        } 
+        }
 #endif
       }
       break;
     }
-  } else { 
+  } else {
 
     /*------------------------------------------------------------
       Handle 16-bit Textures
@@ -453,18 +480,18 @@ GR_ENTRY(grTexDownloadMipMapLevelPartial, void, ( GrChipID_t tmu, FxU32 startAdd
     case 1:                         /* 1xN texture */
       tex_address = tmu_baseaddress + ( t << 9 );
       for ( ; t <= max_t; t++) {
-        SET_TRAM( tex_address, *src16 );
+        SET_TRAM16_1( tex_address, *src16 );
         src16 += 1;
-        tex_address += (1 << 9); 
+        tex_address += (1 << 9);
       }
       break;
 
     case 2:                         /* 2xN texture */
       tex_address = tmu_baseaddress + ( t << 9 );
       for ( ; t <= max_t; t++) {
-        SET_TRAM( tex_address, *(const FxU32 *)src16 );
+        SET_TRAM16( tex_address, *(const FxU32 *)src16 );
         src16 += 2;
-        tex_address += (1 << 9); 
+        tex_address += (1 << 9);
       }
       break;
 
@@ -516,8 +543,8 @@ GR_ENTRY(grTexDownloadMipMapLevelPartial, void, ( GrChipID_t tmu, FxU32 startAdd
 
           t0 = * (const FxU32 *) (src16    );
           t1 = * (const FxU32 *) (src16 + 2);
-          SET_TRAM( tex_address    , t0);
-          SET_TRAM( tex_address + 4, t1);
+          SET_TRAM16( tex_address    , t0);
+          SET_TRAM16( tex_address + 4, t1);
           tex_address += 8;
           src16 += 4;
         }
@@ -711,7 +738,7 @@ GR_ENTRY(ConvertAndDownloadRle, void, ( GrChipID_t tmu, FxU32 startAddress, GrLO
       src=rle_line+u0;
       for(s=0;s<max_s;s++)
       {
-         SET_TRAM( tex_address + ( s << 2 ), *( FxU32 * ) src );
+         SET_TRAM16( tex_address + ( s << 2 ), *( FxU32 * ) src );
          src+=2;
       }
       offset+=bm_data[4+i++];
@@ -724,7 +751,7 @@ GR_ENTRY(ConvertAndDownloadRle, void, ( GrChipID_t tmu, FxU32 startAddress, GrLO
       src=rle_line+u0;
       for(s=0;s<max_s;s++)
       {
-         SET_TRAM( tex_address + ( s << 2 ), *( FxU32 * ) src );
+         SET_TRAM16( tex_address + ( s << 2 ), *( FxU32 * ) src );
          src+=2;
       }
    }

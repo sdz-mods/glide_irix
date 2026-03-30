@@ -453,12 +453,19 @@ GR_ENTRY(grBufferClear, void, ( GrColor_t color, GrAlpha_t alpha, FxU16 depth ))
    * this wait, FIFO writes hit PCI RETRY before _grSpinFifo can
    * intervene, accumulating enough retries to trigger a permanent MACE
    * fault.  Waiting for !SST_BUSY here provides the missing
-   * frame-boundary synchronisation. */
+   * frame-boundary synchronisation.
+   *
+   * MACE fix: original code had no sleep and a cap of 10,000,000 (10M
+   * tight iterations), which hammers the Voodoo status register with
+   * rapid PCI reads and triggers the MACE PCI RETRY fault — the same
+   * class of bug fixed in grBufferSwap and gtexdl.c.  Cap at 100 polls
+   * × 1ms = 100ms max; sleep 1ms between each to give MACE idle time.
+   * If the chip is still busy after 100ms something else is wrong. */
   {
     FxU32 _irix_clear_idle_spins = 0;
     while ((grSstStatus() & SST_BUSY) &&
-           (++_irix_clear_idle_spins < 10000000UL))
-      ;
+           (++_irix_clear_idle_spins < 100))
+      usleep(1000);
   }
 #endif
 
