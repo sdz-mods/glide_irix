@@ -187,7 +187,19 @@
 #define FX_DLL_DEFINITION
 #include <fxdll.h>
 #include <glide.h>
+#define GLIDE_IRIX_MMIO_TAG GLIDE_IRIX_MMIO_TAG_GGLIDE
 #include "fxglide.h"
+
+#if defined(__sgi__) || defined(IRIX)
+static void
+_grIrixFastfillLatchDelay(void)
+{
+  volatile int i;
+
+  for (i = 0; i < 256; ++i)
+    irix_sync();
+}
+#endif
 #include "fxinline.h"
 
 #if ( GLIDE_PLATFORM & GLIDE_HW_SST96 )
@@ -465,7 +477,11 @@ GR_ENTRY(grBufferClear, void, ( GrColor_t color, GrAlpha_t alpha, FxU16 depth ))
     FxU32 _irix_clear_idle_spins = 0;
     while ((grSstStatus() & SST_BUSY) &&
            (++_irix_clear_idle_spins < 100))
-      usleep(1000);
+      usleep(750);
+    if (_irix_clear_idle_spins) {
+      GR_IRIX_STAT_INC(irixClearIdleWaits);
+      GR_IRIX_STAT_ADD(irixClearIdlePolls, _irix_clear_idle_spins);
+    }
   }
 #endif
 
@@ -526,15 +542,18 @@ GR_ENTRY(grBufferClear, void, ( GrColor_t color, GrAlpha_t alpha, FxU16 depth ))
    * from the saved value).  The Voodoo1 fastfill rasterizer latches zaColor
    * a few cycles after it dequeues fastfillCMD; the zaColor restore that
    * follows can race that latch and overwrite the new depth before the
-   * rasterizer reads it.  usleep(1) gives the chip time to latch.
+   * rasterizer reads it.  Use a short local busy delay here instead of
+   * usleep(1), which can round up to an OS scheduler tick on IRIX.
    *
    * Skipping the sleep when zaColor is unchanged avoids an unnecessary
    * ~10ms OS-tick stall every frame for Z-buffer clears (depth=0x0000),
    * which are immune because oldzacolor == zacolor (the restore is a no-op
    * from the hardware's perspective).  W-buffer clears (depth=0xFFFF)
-   * require the sleep because oldzacolor (0x0000) != zacolor (0x0000FFFF). */
-  if (zacolor != oldzacolor)
-    usleep(1);
+   * require the delay because oldzacolor (0x0000) != zacolor (0x0000FFFF). */
+  if (zacolor != oldzacolor) {
+    GR_IRIX_STAT_INC(irixClearLatchDelays);
+    _grIrixFastfillLatchDelay();
+  }
 #endif
 #ifdef GLIDE_IRIX_DBG_VERBOSE
   fprintf(stderr, "MARK: grBufferClear after fastfillCMD\n");
@@ -605,7 +624,7 @@ GR_ENTRY(grBufferSwap, void, ( int swapInterval ))
     GR_SETF(hw->FvB.y, 0.f);
     GR_SETF(hw->FvC.x, 640.f);
     GR_SETF(hw->FvC.y, 480.f);
-    GR_SETF(hw->FtriangleCMD, 1.f);
+    GR_SETF_SYNC(hw->FtriangleCMD, 1.f);
     GR_SET(hw->fbzMode, gc->state.fbi_config.fbzMode);
     GR_CHECK_SIZE();
   }
@@ -694,8 +713,17 @@ GR_ENTRY(grBufferSwap, void, ( int swapInterval ))
    * transparently in hardware without CPU involvement, and there is no
    * equivalent of MACE's fatal-RETRY behaviour.
    */
-  while (grBufferNumPending() > 1)
-    usleep(1000);
+  {
+    FxU32 _irix_swap_wait_polls = 0;
+    while (grBufferNumPending() > 1) {
+      _irix_swap_wait_polls++;
+      usleep(750);
+    }
+    if (_irix_swap_wait_polls) {
+      GR_IRIX_STAT_INC(irixSwapPendingWaits);
+      GR_IRIX_STAT_ADD(irixSwapPendingPolls, _irix_swap_wait_polls);
+    }
+  }
   /* Flush any pending shadow-buffer LFB writes to hardware so they are
    * visible on the newly-promoted front buffer after the swap.  Needed
    * for callers that hold grLfbLock open across multiple frames without

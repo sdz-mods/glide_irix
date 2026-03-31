@@ -81,8 +81,7 @@ main( int argc, char **argv)
   printf( "%s\n", version );
   printf( "Resolution: %s\n", tlGetResolutionString( resolution ) );
   if ( frames == -1 ) {
-    printf( "Press A Key To Begin Test.\n" );
-    tlGetCH();
+    frames = 200;
   }
   
   /* Initialize Glide */

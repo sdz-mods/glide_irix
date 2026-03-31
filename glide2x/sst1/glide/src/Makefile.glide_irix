@@ -16,6 +16,7 @@
 CC      = cc
 ABI     = -n32
 MIPSISA = -mips4
+INSTRUMENT ?= 0
 
 DEFINES = -DFX_GLIDE_HW=SST1       \
           -DGLIDE_HW_SST1=1        \
@@ -30,7 +31,9 @@ DEFINES = -DFX_GLIDE_HW=SST1       \
           -DGLIDE_LIB=1            \
           -UGLIDE_DEBUG             \
           -UGLIDE_SPLASH           \
+          -DGLIDE_USE_ALT_REGMAP=1 \
           -DGLIDE_USE_C_TRISETUP=1 \
+          -DGLIDE_IRIX_INSTRUMENT=$(INSTRUMENT) \
           -DGLIDE_IRIX_DBG_INIT=1
           # Add -DGLIDE_IRIX_DBG_VERBOSE=1 to enable verbose per-frame debug output
 
@@ -44,7 +47,7 @@ INCLUDES = -I. \
            -I../../init \
            -I../../init/initvg
 
-CFLAGS  = $(ABI) $(MIPSISA) -O2 $(DEFINES) $(INCLUDES) -fullwarn
+CFLAGS  = $(ABI) $(MIPSISA) -O3 -r5000 $(DEFINES) $(INCLUDES) -fullwarn
 LDFLAGS = $(ABI) $(MIPSISA) -shared -rdata_shared
 
 PCILIB   = ../../../../swlibs/newpci/pcilib/libfxpci_irix.a

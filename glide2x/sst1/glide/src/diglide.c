@@ -76,6 +76,15 @@
 #include <glide.h>
 #include "fxglide.h"
 
+#if (defined(__sgi__) || defined(IRIX)) && GLIDE_IRIX_INSTRUMENT
+extern FxU32 irixInitIdleLoopCalls;
+extern FxU32 irixInitIdleLoopPolls;
+extern FxU32 irixInitIdleFBICalls;
+extern FxU32 irixInitIdleFBIPolls;
+extern FxU32 irixInitIdleFBINoNOPCalls;
+extern FxU32 irixInitIdleFBINoNOPPolls;
+#endif
+
 #if ( GLIDE_PLATFORM & GLIDE_HW_SST96 )
 #include <init.h>
 #endif
@@ -115,6 +124,84 @@ _grDisplayStats(void)
                    _GlideRoot.stats.texDownloads,  _GlideRoot.stats.texBytes);
     gdbg_info(80,"       palette downloads: %7d    palette bytes: %7d\n",
                    _GlideRoot.stats.palDownloads, _GlideRoot.stats.palBytes);
+#if GLIDE_IRIX_INSTRUMENT
+    fprintf(stderr,
+            "GLIDE IRIX COUNTERS: clearIdleWaits=%u clearIdlePolls=%u "
+            "clearLatchHits=%u swapPendingWaits=%u swapPendingPolls=%u "
+            "texIdleCalls=%u\n",
+            (unsigned)_GlideRoot.stats.irixClearIdleWaits,
+            (unsigned)_GlideRoot.stats.irixClearIdlePolls,
+            (unsigned)_GlideRoot.stats.irixClearLatchDelays,
+            (unsigned)_GlideRoot.stats.irixSwapPendingWaits,
+            (unsigned)_GlideRoot.stats.irixSwapPendingPolls,
+            (unsigned)_GlideRoot.stats.irixTexIdleCalls);
+    {
+      GR_DCL_GC;
+      fprintf(stderr,
+              "GLIDE IRIX FIFO: swFifoLWM=%d fifoRecacheCalls=%u fifoFastPathHits=%u "
+              "fifoRoomWaits=%u fifoRoomWaitPolls=%u "
+              "fifoFreeMin=%d fifoFreeMax=%d\n",
+              (int)gc->hwDep.sst1Dep.swFifoLWM,
+              (unsigned)_GlideRoot.stats.irixFifoRecacheCalls,
+              (unsigned)_GlideRoot.stats.irixFifoFastPathHits,
+              (unsigned)_GlideRoot.stats.irixFifoRoomWaits,
+              (unsigned)_GlideRoot.stats.irixFifoRoomWaitPolls,
+              (int)_GlideRoot.stats.irixFifoFreeMin,
+              (int)_GlideRoot.stats.irixFifoFreeMax);
+    }
+    fprintf(stderr,
+            "GLIDE IRIX MMIO: mmioSet=%u mmioSet16=%u mmioSetf=%u mmioSync=%u\n",
+            (unsigned)_GlideRoot.stats.irixMmioSetWrites,
+            (unsigned)_GlideRoot.stats.irixMmioSet16Writes,
+            (unsigned)_GlideRoot.stats.irixMmioSetfWrites,
+            (unsigned)_GlideRoot.stats.irixMmioSyncCalls);
+    fprintf(stderr,
+            "GLIDE IRIX MMIOF PATHS: gdraw=%u gaa=%u gxdraw=%u gglide=%u other=%u\n",
+            (unsigned)_GlideRoot.stats.irixMmioSetfGdrawWrites,
+            (unsigned)_GlideRoot.stats.irixMmioSetfGaaWrites,
+            (unsigned)_GlideRoot.stats.irixMmioSetfGxdrawWrites,
+            (unsigned)_GlideRoot.stats.irixMmioSetfGglideWrites,
+            (unsigned)_GlideRoot.stats.irixMmioSetfOtherWrites);
+    fprintf(stderr,
+            "GLIDE IRIX GXDRAW: trisetup=%u nograd=%u\n",
+            (unsigned)_GlideRoot.stats.irixMmioSetfGxTrisetupWrites,
+            (unsigned)_GlideRoot.stats.irixMmioSetfGxNoGradWrites);
+    fprintf(stderr,
+            "GLIDE IRIX GXTRI: calls=%u triSizeSum=%u triSizeNoGradSum=%u "
+            "drgb=%u ooz=%u alpha=%u st0=%u oow=%u w0=%u st1=%u w1=%u "
+            "oowW0Both=%u oowW0Equal=%u oowW0Diff=%u\n",
+            (unsigned)_GlideRoot.stats.irixGxTriCalls,
+            (unsigned)_GlideRoot.stats.irixGxTriCurTriSizeSum,
+            (unsigned)_GlideRoot.stats.irixGxTriCurTriSizeNoGradSum,
+            (unsigned)_GlideRoot.stats.irixGxTriHasDrgb,
+            (unsigned)_GlideRoot.stats.irixGxTriHasOoz,
+            (unsigned)_GlideRoot.stats.irixGxTriHasAlpha,
+            (unsigned)_GlideRoot.stats.irixGxTriHasSt0,
+            (unsigned)_GlideRoot.stats.irixGxTriHasOowFbi,
+            (unsigned)_GlideRoot.stats.irixGxTriHasW0,
+            (unsigned)_GlideRoot.stats.irixGxTriHasSt1,
+            (unsigned)_GlideRoot.stats.irixGxTriHasW1,
+            (unsigned)_GlideRoot.stats.irixGxTriOowW0Both,
+            (unsigned)_GlideRoot.stats.irixGxTriOowW0EqualTris,
+            (unsigned)_GlideRoot.stats.irixGxTriOowW0DiffTris);
+    fprintf(stderr,
+            "GLIDE IRIX CLIP: triCalls=%u calcParams=%u calcParamsOow=%u\n",
+            (unsigned)_GlideRoot.stats.irixClipTriCalls,
+            (unsigned)_GlideRoot.stats.irixClipCalcParamsCalls,
+            (unsigned)_GlideRoot.stats.irixClipCalcParamsOowCalls);
+#if defined(__sgi__) || defined(IRIX)
+    fprintf(stderr,
+            "GLIDE IRIX IDLE: initIdleCalls=%u initIdlePolls=%u "
+            "idleFBICalls=%u idleFBIPolls=%u "
+            "idleFBINoNOPCalls=%u idleFBINoNOPPolls=%u\n",
+            (unsigned)irixInitIdleLoopCalls,
+            (unsigned)irixInitIdleLoopPolls,
+            (unsigned)irixInitIdleFBICalls,
+            (unsigned)irixInitIdleFBIPolls,
+            (unsigned)irixInitIdleFBINoNOPCalls,
+            (unsigned)irixInitIdleFBINoNOPPolls);
+#endif
+#endif
 #ifdef GLIDE_DEBUG
     /* these stats are only kept in debugging mode */
     gdbg_info(80,"       Min PCI FIFO free: 0x%04x (%d)\n",
@@ -134,7 +221,14 @@ _grReCacheFifo( FxI32 n )
   GR_DCL_GC;
   FxU32 rawStatus = grSstStatus();
   FxI32 level = (FxI32)((rawStatus >> SST_MEMFIFOLEVEL_SHIFT) & 0xffff);
+  GR_IRIX_STAT_INC(irixFifoRecacheCalls);
   gc->state.fifoFree = (level << 2) - gc->hwDep.sst1Dep.swFifoLWM - n;
+#if GLIDE_IRIX_INSTRUMENT
+  if (gc->state.fifoFree < _GlideRoot.stats.irixFifoFreeMin)
+    _GlideRoot.stats.irixFifoFreeMin = gc->state.fifoFree;
+  if (gc->state.fifoFree > _GlideRoot.stats.irixFifoFreeMax)
+    _GlideRoot.stats.irixFifoFreeMax = gc->state.fifoFree;
+#endif
 }
 
 FxI32 GR_CDECL
@@ -149,9 +243,9 @@ _grSpinFifo( FxI32 n )
      * Rapid reads of hw->status while the Voodoo1 FIFO is full generate
      * RETRY responses; too many in succession put MACE in a fault state
      * that stops all PCI transactions.  usleep(1) was too fast (~500K reads/s)
-     * and accumulated enough RETRYs to trigger the fault.  usleep(1000) matches
+     * and accumulated enough RETRYs to trigger the fault.  usleep(750) matches
      * the fix applied to grBufferSwap and grBufferClear (1ms between polls). */
-    usleep(1000);
+    usleep(750);
 #endif
     _grReCacheFifo( n );
     if (++spins >= 10000000UL) {
@@ -340,6 +434,56 @@ GR_DIENTRY(grResetTriStats, void, ( void ))
   _GlideRoot.stats.texBytes = 0;
   _GlideRoot.stats.palDownloads = 0;
   _GlideRoot.stats.palBytes = 0;
+#if GLIDE_IRIX_INSTRUMENT
+  _GlideRoot.stats.irixClearIdleWaits = 0;
+  _GlideRoot.stats.irixClearIdlePolls = 0;
+  _GlideRoot.stats.irixClearLatchDelays = 0;
+  _GlideRoot.stats.irixSwapPendingWaits = 0;
+  _GlideRoot.stats.irixSwapPendingPolls = 0;
+  _GlideRoot.stats.irixTexIdleCalls = 0;
+  _GlideRoot.stats.irixFifoRecacheCalls = 0;
+  _GlideRoot.stats.irixFifoFastPathHits = 0;
+  _GlideRoot.stats.irixFifoRoomWaits = 0;
+  _GlideRoot.stats.irixFifoRoomWaitPolls = 0;
+  _GlideRoot.stats.irixFifoFreeMin = 0x7fffffff;
+  _GlideRoot.stats.irixFifoFreeMax = -0x7fffffff;
+  _GlideRoot.stats.irixMmioSetWrites = 0;
+  _GlideRoot.stats.irixMmioSet16Writes = 0;
+  _GlideRoot.stats.irixMmioSetfWrites = 0;
+  _GlideRoot.stats.irixMmioSetfGdrawWrites = 0;
+  _GlideRoot.stats.irixMmioSetfGaaWrites = 0;
+  _GlideRoot.stats.irixMmioSetfGxdrawWrites = 0;
+  _GlideRoot.stats.irixMmioSetfGxTrisetupWrites = 0;
+  _GlideRoot.stats.irixMmioSetfGxNoGradWrites = 0;
+  _GlideRoot.stats.irixMmioSetfGglideWrites = 0;
+  _GlideRoot.stats.irixMmioSetfOtherWrites = 0;
+  _GlideRoot.stats.irixGxTriCalls = 0;
+  _GlideRoot.stats.irixGxTriCurTriSizeSum = 0;
+  _GlideRoot.stats.irixGxTriCurTriSizeNoGradSum = 0;
+  _GlideRoot.stats.irixGxTriHasDrgb = 0;
+  _GlideRoot.stats.irixGxTriHasOoz = 0;
+  _GlideRoot.stats.irixGxTriHasAlpha = 0;
+  _GlideRoot.stats.irixGxTriHasSt0 = 0;
+  _GlideRoot.stats.irixGxTriHasOowFbi = 0;
+  _GlideRoot.stats.irixGxTriHasW0 = 0;
+  _GlideRoot.stats.irixGxTriHasSt1 = 0;
+  _GlideRoot.stats.irixGxTriHasW1 = 0;
+  _GlideRoot.stats.irixGxTriOowW0Both = 0;
+  _GlideRoot.stats.irixGxTriOowW0EqualTris = 0;
+  _GlideRoot.stats.irixGxTriOowW0DiffTris = 0;
+  _GlideRoot.stats.irixClipTriCalls = 0;
+  _GlideRoot.stats.irixClipCalcParamsCalls = 0;
+  _GlideRoot.stats.irixClipCalcParamsOowCalls = 0;
+  _GlideRoot.stats.irixMmioSyncCalls = 0;
+#if defined(__sgi__) || defined(IRIX)
+  irixInitIdleLoopCalls = 0;
+  irixInitIdleLoopPolls = 0;
+  irixInitIdleFBICalls = 0;
+  irixInitIdleFBIPolls = 0;
+  irixInitIdleFBINoNOPCalls = 0;
+  irixInitIdleFBINoNOPPolls = 0;
+#endif
+#endif
 } /* grResetTriStats */
 
 

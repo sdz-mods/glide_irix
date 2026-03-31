@@ -88,7 +88,32 @@
 #define FX_DLL_DEFINITION
 #include <fxdll.h>
 #include <glide.h>
+#define GLIDE_IRIX_MMIO_TAG GLIDE_IRIX_MMIO_TAG_GXDRAW
 #include "fxglide.h"
+
+#define GX_SETF_TRI(d,s) \
+  do { \
+    GR_IRIX_STAT_INC(irixMmioSetfGxTrisetupWrites); \
+    GR_SETF(d,s); \
+  } while (0)
+
+#define GX_SETF_TRI_SYNC(d,s) \
+  do { \
+    GR_IRIX_STAT_INC(irixMmioSetfGxTrisetupWrites); \
+    GR_SETF_SYNC(d,s); \
+  } while (0)
+
+#define GX_SETF_NG(d,s) \
+  do { \
+    GR_IRIX_STAT_INC(irixMmioSetfGxNoGradWrites); \
+    GR_SETF(d,s); \
+  } while (0)
+
+#define GX_SETF_NG_SYNC(d,s) \
+  do { \
+    GR_IRIX_STAT_INC(irixMmioSetfGxNoGradWrites); \
+    GR_SETF_SYNC(d,s); \
+  } while (0)
 
 #ifdef GDBG_INFO_ON
   /* Some debugging information */
@@ -369,7 +394,32 @@ GR_DDFUNC(_trisetup, FxI32, ( const GrVertex *va, const GrVertex *vb, const GrVe
   int ay, by, cy;
   float *fp;
   struct dataList_s *dlp;
+  FxU32 paramIndex;
   
+  paramIndex = gc->state.paramIndex;
+  GR_IRIX_STAT_INC(irixGxTriCalls);
+  GR_IRIX_STAT_ADD(irixGxTriCurTriSizeSum, (FxU32)_GlideRoot.curTriSize);
+  GR_IRIX_STAT_ADD(irixGxTriCurTriSizeNoGradSum, (FxU32)_GlideRoot.curTriSizeNoGradient);
+  if (paramIndex & STATE_REQUIRES_IT_DRGB) GR_IRIX_STAT_INC(irixGxTriHasDrgb);
+  if (paramIndex & STATE_REQUIRES_OOZ) GR_IRIX_STAT_INC(irixGxTriHasOoz);
+  if (paramIndex & STATE_REQUIRES_IT_ALPHA) GR_IRIX_STAT_INC(irixGxTriHasAlpha);
+  if (paramIndex & STATE_REQUIRES_ST_TMU0) GR_IRIX_STAT_INC(irixGxTriHasSt0);
+  if (paramIndex & STATE_REQUIRES_OOW_FBI) GR_IRIX_STAT_INC(irixGxTriHasOowFbi);
+  if (paramIndex & STATE_REQUIRES_W_TMU0) GR_IRIX_STAT_INC(irixGxTriHasW0);
+  if (paramIndex & STATE_REQUIRES_ST_TMU1) GR_IRIX_STAT_INC(irixGxTriHasSt1);
+  if (paramIndex & STATE_REQUIRES_W_TMU1) GR_IRIX_STAT_INC(irixGxTriHasW1);
+  if ((paramIndex & (STATE_REQUIRES_OOW_FBI | STATE_REQUIRES_W_TMU0)) ==
+      (STATE_REQUIRES_OOW_FBI | STATE_REQUIRES_W_TMU0)) {
+    GR_IRIX_STAT_INC(irixGxTriOowW0Both);
+    if ((va->oow == va->tmuvtx[0].oow) &&
+        (vb->oow == vb->tmuvtx[0].oow) &&
+        (vc->oow == vc->tmuvtx[0].oow)) {
+      GR_IRIX_STAT_INC(irixGxTriOowW0EqualTris);
+    } else {
+      GR_IRIX_STAT_INC(irixGxTriOowW0DiffTris);
+    }
+  }
+
   culltest = gc->state.cull_mode; /* 1 if negative, 0 if positive */
   _GlideRoot.stats.trisProcessed++;
   
@@ -449,19 +499,19 @@ GR_DDFUNC(_trisetup, FxI32, ( const GrVertex *va, const GrVertex *vb, const GrVe
   ooa = _GlideRoot.pool.f1 / _GlideRoot.pool.ftemp1;
   /* GMT: note that we spread out our PCI writes */
   /* write out X & Y for vertex A */
-  GR_SETF( hw->FvA.x, fa[GR_VERTEX_X_OFFSET] );
-  GR_SETF( hw->FvA.y, fa[GR_VERTEX_Y_OFFSET] );
+  GX_SETF_TRI( hw->FvA.x, fa[GR_VERTEX_X_OFFSET] );
+  GX_SETF_TRI( hw->FvA.y, fa[GR_VERTEX_Y_OFFSET] );
 
   dlp = gc->dataList;
   i = dlp->i;
   
   /* write out X & Y for vertex B */
-  GR_SETF( hw->FvB.x, fb[GR_VERTEX_X_OFFSET] );
-  GR_SETF( hw->FvB.y, fb[GR_VERTEX_Y_OFFSET] );
+  GX_SETF_TRI( hw->FvB.x, fb[GR_VERTEX_X_OFFSET] );
+  GX_SETF_TRI( hw->FvB.y, fb[GR_VERTEX_Y_OFFSET] );
   
   /* write out X & Y for vertex C */
-  GR_SETF( hw->FvC.x, fc[GR_VERTEX_X_OFFSET] );
-  GR_SETF( hw->FvC.y, fc[GR_VERTEX_Y_OFFSET] );
+  GX_SETF_TRI( hw->FvC.x, fc[GR_VERTEX_X_OFFSET] );
+  GX_SETF_TRI( hw->FvC.y, fc[GR_VERTEX_Y_OFFSET] );
 
   /*
   ** Divide the deltas by the area for gradient calculation.
@@ -482,7 +532,7 @@ GR_DDFUNC(_trisetup, FxI32, ( const GrVertex *va, const GrVertex *vb, const GrVe
     fp = dlp->addr;
     if (i & 1) {                   /* packer bug check */
       if (i & 2) P6FENCE;
-      GR_SETF( fp[0], 0.0F );
+      GX_SETF_TRI( fp[0], 0.0F );
       if (i & 2) P6FENCE;
       dlp++;
       i = dlp->i;
@@ -492,20 +542,20 @@ GR_DDFUNC(_trisetup, FxI32, ( const GrVertex *va, const GrVertex *vb, const GrVe
 
       dpBC = FARRAY(fb,i);
       dpdx = FARRAY(fa,i);
-      GR_SETF( fp[0], dpdx );
+      GX_SETF_TRI( fp[0], dpdx );
 
       dpAB = dpdx - dpBC;
       dpBC = dpBC - FARRAY(fc,i);
       dpdx = dpAB * dyBC - dpBC * dyAB;
 
 GDBG_INFO((285,"p0,1x: %g %g dpdx: %g\n",dpAB * dyBC,dpBC * dyAB,dpdx));
-      GR_SETF( fp[DPDX_OFFSET>>2] , dpdx );
+      GX_SETF_TRI( fp[DPDX_OFFSET>>2] , dpdx );
       dpdy = dpBC * dxAB - dpAB * dxBC;
 
 GDBG_INFO((285,"p0,1y: %g %g dpdy: %g\n",dpBC * dxAB,dpAB * dxBC,dpdy));
       dlp++;
       i = dlp->i;
-      GR_SETF( fp[DPDY_OFFSET>>2] , dpdy );
+      GX_SETF_TRI( fp[DPDY_OFFSET>>2] , dpdy );
     }
   }
 
@@ -513,7 +563,7 @@ GDBG_INFO((285,"p0,1y: %g %g dpdy: %g\n",dpBC * dxAB,dpAB * dxBC,dpdy));
    * On IRIX/MIPS, GR_SETF_SYNC adds a PCI readback to drain the MIPS write
    * buffer and prevent MACE RETRY accumulation from unfenced vertex writes.
    * P6FENCE_CMD is a no-op on MIPS (CPUType != 6). */
-  P6FENCE_CMD( GR_SETF_SYNC( hw->FtriangleCMD, _GlideRoot.pool.ftemp1 ) );
+  P6FENCE_CMD( GX_SETF_TRI_SYNC( hw->FtriangleCMD, _GlideRoot.pool.ftemp1 ) );
   _GlideRoot.stats.trisDrawn++;
 
   GR_CHECK_SIZE();
@@ -791,8 +841,8 @@ GR_DDFUNC(_trisetup_nogradients, FxI32, ( const GrVertex *va, const GrVertex *vb
 
    /* GMT: note that we spread out our PCI writes */
    /* write out X & Y for vertex A */
-   GR_SETF( hw->FvA.x, fa[GR_VERTEX_X_OFFSET] );
-   GR_SETF( hw->FvA.y, fa[GR_VERTEX_Y_OFFSET] );
+   GX_SETF_NG( hw->FvA.x, fa[GR_VERTEX_X_OFFSET] );
+   GX_SETF_NG( hw->FvA.y, fa[GR_VERTEX_Y_OFFSET] );
 
   /* Compute Area */
   dxAB = fa[GR_VERTEX_X_OFFSET] - fb[GR_VERTEX_X_OFFSET];
@@ -802,8 +852,8 @@ GR_DDFUNC(_trisetup_nogradients, FxI32, ( const GrVertex *va, const GrVertex *vb
   dyBC = fb[GR_VERTEX_Y_OFFSET] - fc[GR_VERTEX_Y_OFFSET];
 
    /* write out X & Y for vertex B */
-   GR_SETF( hw->FvB.x, fb[GR_VERTEX_X_OFFSET] );
-   GR_SETF( hw->FvB.y, fb[GR_VERTEX_Y_OFFSET] );
+   GX_SETF_NG( hw->FvB.x, fb[GR_VERTEX_X_OFFSET] );
+   GX_SETF_NG( hw->FvB.y, fb[GR_VERTEX_Y_OFFSET] );
 
   /* this is where we store the area */
   _GlideRoot.pool.ftemp1 = dxAB * dyBC - dxBC * dyAB;
@@ -817,8 +867,8 @@ GR_DDFUNC(_trisetup_nogradients, FxI32, ( const GrVertex *va, const GrVertex *vb
   }
   
   /* write out X & Y for vertex C */
-  GR_SETF( hw->FvC.x, fc[GR_VERTEX_X_OFFSET] );
-  GR_SETF( hw->FvC.y, fc[GR_VERTEX_Y_OFFSET] );
+   GX_SETF_NG( hw->FvC.x, fc[GR_VERTEX_X_OFFSET] );
+   GX_SETF_NG( hw->FvC.y, fc[GR_VERTEX_Y_OFFSET] );
 
    dlp = gc->dataList;
    i = dlp->i;
@@ -834,13 +884,13 @@ GR_DDFUNC(_trisetup_nogradients, FxI32, ( const GrVertex *va, const GrVertex *vb
     fp = dlp->addr;
     if (i & 1) {                   /* packer bug check */
       if (i & 2) P6FENCE;
-      GR_SETF( fp[0], 0.0F );
+      GX_SETF_NG( fp[0], 0.0F );
       if (i & 2) P6FENCE;
       dlp++;
       i = dlp->i;
     }
     else {
-      GR_SETF( fp[0], FARRAY(fa,i) );
+      GX_SETF_NG( fp[0], FARRAY(fa,i) );
       dlp++;
       i = dlp->i;
     }
@@ -850,7 +900,7 @@ GR_DDFUNC(_trisetup_nogradients, FxI32, ( const GrVertex *va, const GrVertex *vb
    * On IRIX/MIPS, GR_SETF_SYNC adds a PCI readback to drain the MIPS write
    * buffer and prevent MACE RETRY accumulation from unfenced vertex writes.
    * P6FENCE_CMD is a no-op on MIPS (CPUType != 6). */
-  P6FENCE_CMD( GR_SETF_SYNC( hw->FtriangleCMD, _GlideRoot.pool.ftemp1 ) );
+  P6FENCE_CMD( GX_SETF_NG_SYNC( hw->FtriangleCMD, _GlideRoot.pool.ftemp1 ) );
   _GlideRoot.stats.trisDrawn++;
 
   GR_CHECK_SIZE();
@@ -859,4 +909,3 @@ GR_DDFUNC(_trisetup_nogradients, FxI32, ( const GrVertex *va, const GrVertex *vb
 #else
 #error  "Need Triangle Setup code for this hardware"
 #endif
-

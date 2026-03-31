@@ -39,6 +39,7 @@
 #define FX_DLL_DEFINITION
 #include <fxdll.h>
 #include <glide.h>
+#define GLIDE_IRIX_MMIO_TAG GLIDE_IRIX_MMIO_TAG_GAA
 #include "fxglide.h"
 
 #define FARRAY(p,i) (*(float *)((i)+(int)(p)))
@@ -288,7 +289,7 @@ GR_ENTRY(grAADrawLine, void, ( const GrVertex *v1, const GrVertex *v2 ))
     dp = - tmp2 * dx;
     GR_SETF( hw->Fdadx , dp );
     GR_SETF( hw->Fdady , v2->a );
-    P6FENCE_CMD( GR_SETF( hw->FtriangleCMD, -dx ) );
+    P6FENCE_CMD( GR_SETF_SYNC( hw->FtriangleCMD, -dx ) );
 
     /* 2nd triangle A-V1-V2*/
     GR_SETF( hw->FvB.x, v1->x);
@@ -300,7 +301,7 @@ GR_ENTRY(grAADrawLine, void, ( const GrVertex *v1, const GrVertex *v2 ))
     GR_SETF( hw->Fdady , v1->a );
     dp *= dx;
     GR_SETF( hw->Fdadx , dp );
-    P6FENCE_CMD( GR_SETF( hw->FtriangleCMD, dx ) );
+    P6FENCE_CMD( GR_SETF_SYNC( hw->FtriangleCMD, dx ) );
 
     /* 3rd triangle v1-E-F */
     GR_SETF( hw->FvA.y, v1->y);
@@ -312,7 +313,7 @@ GR_ENTRY(grAADrawLine, void, ( const GrVertex *v1, const GrVertex *v2 ))
     GR_SETF( hw->Fdady , -v1->a );
     dp = tmp1 * dx;
     GR_SETF( hw->Fdadx , dp );
-    P6FENCE_CMD( GR_SETF( hw->FtriangleCMD, dx ) );
+    P6FENCE_CMD( GR_SETF_SYNC( hw->FtriangleCMD, dx ) );
 
     /* 4th triangle V1-V2-F*/
     GR_SETF( hw->FvB.x, v2->x);
@@ -324,7 +325,7 @@ GR_ENTRY(grAADrawLine, void, ( const GrVertex *v1, const GrVertex *v2 ))
 
     GR_SETF( hw->Fdadx , dp ); 
     GR_SETF( hw->Fdady , -v2->a );
-    P6FENCE_CMD( GR_SETF( hw->FtriangleCMD, -dx ) );
+    P6FENCE_CMD( GR_SETF_SYNC( hw->FtriangleCMD, -dx ) );
 
   } else {                      /* Y major line */
 
@@ -366,7 +367,7 @@ GR_ENTRY(grAADrawLine, void, ( const GrVertex *v1, const GrVertex *v2 ))
     GR_SETF( hw->Fdadx , v2->a );
     dp *= dy;
     GR_SETF( hw->Fdady , dp );
-    P6FENCE_CMD( GR_SETF( hw->FtriangleCMD, -dy ) );
+    P6FENCE_CMD( GR_SETF_SYNC( hw->FtriangleCMD, -dy ) );
 
     /* 2nd triangle v1-a-b */
 
@@ -376,7 +377,7 @@ GR_ENTRY(grAADrawLine, void, ( const GrVertex *v1, const GrVertex *v2 ))
     GR_SETF( hw->Fdadx , v1->a );
     dp = - tmp1 * dy;
     GR_SETF( hw->Fdady , dp );
-    P6FENCE_CMD( GR_SETF( hw->FtriangleCMD, dy ) );
+    P6FENCE_CMD( GR_SETF_SYNC( hw->FtriangleCMD, dy ) );
 
     /* 3rd triangle e-v1-v2 */
     GR_SETF( hw->FvA.x, v1->x + _GlideRoot.pool.f1);
@@ -389,7 +390,7 @@ GR_ENTRY(grAADrawLine, void, ( const GrVertex *v1, const GrVertex *v2 ))
     GR_SET( hw->Fa , 0 );
     GR_SETF( hw->Fdadx , -v1->a );
     GR_SETF( hw->Fdady , dp );
-    P6FENCE_CMD( GR_SETF( hw->FtriangleCMD, dy ) );
+    P6FENCE_CMD( GR_SETF_SYNC( hw->FtriangleCMD, dy ) );
 
     /* 4th triangle e-f-v2 */
     GR_SETF( hw->FvB.x, v2->x + _GlideRoot.pool.f1);
@@ -401,7 +402,7 @@ GR_ENTRY(grAADrawLine, void, ( const GrVertex *v1, const GrVertex *v2 ))
     GR_SETF( hw->Fdadx , -v2->a );
     dp = tmp2 * dy;
     GR_SETF( hw->Fdady , dp );
-    P6FENCE_CMD( GR_SETF( hw->FtriangleCMD, -dy ) );
+    P6FENCE_CMD( GR_SETF_SYNC( hw->FtriangleCMD, -dy ) );
 
   }
   GR_END();
@@ -490,7 +491,7 @@ grAADrawTriEdgeSense(const GrVertex *a,const GrVertex *b,const GrVertex *c)
     GR_SETF( hw->Fdady, -a->a);
     dp *= m;
     GR_SETF( hw->Fdadx, dp);
-    P6FENCE_CMD( GR_SETF( hw->triangleCMD, dx ) );
+    P6FENCE_CMD( GR_SETF_SYNC( hw->triangleCMD, dx ) );
       
     dp = b->a * dy;
     GR_SETF( hw->FvB.x, b->x);
@@ -502,7 +503,7 @@ grAADrawTriEdgeSense(const GrVertex *a,const GrVertex *b,const GrVertex *c)
     GR_SETF( hw->Fdady, -b->a);
     dp *= m;
     GR_SETF( hw->Fdadx, dp);
-    P6FENCE_CMD( GR_SETF( hw->triangleCMD, -dx ) );
+    P6FENCE_CMD( GR_SETF_SYNC( hw->triangleCMD, -dx ) );
     
     break;
     
@@ -523,7 +524,7 @@ grAADrawTriEdgeSense(const GrVertex *a,const GrVertex *b,const GrVertex *c)
     GR_SETF( hw->Fdadx, a->a);
     dp = - a->a * dx * m;
     GR_SETF( hw->Fdady, dp);
-    P6FENCE_CMD( GR_SETF( hw->triangleCMD, -dy ) );
+    P6FENCE_CMD( GR_SETF_SYNC( hw->triangleCMD, -dy ) );
     
     GR_SETF( hw->FvA.x, a->x);
     dp = b->a * dx;
@@ -536,7 +537,7 @@ grAADrawTriEdgeSense(const GrVertex *a,const GrVertex *b,const GrVertex *c)
     GR_SETF( hw->Fdadx, b->a);
     dp *= m;
     GR_SETF( hw->Fdady, dp);
-    P6FENCE_CMD( GR_SETF( hw->triangleCMD, -dy ) );
+    P6FENCE_CMD( GR_SETF_SYNC( hw->triangleCMD, -dy ) );
     
     break;
     
@@ -560,7 +561,7 @@ grAADrawTriEdgeSense(const GrVertex *a,const GrVertex *b,const GrVertex *c)
       dp *= m;
       GR_SETF( hw->Fdadx, -dp);
       GR_SETF( hw->Fdady, a->a);
-      P6FENCE_CMD( GR_SETF( hw->triangleCMD, dx ) );
+      P6FENCE_CMD( GR_SETF_SYNC( hw->triangleCMD, dx ) );
     
       GR_SETF( hw->FvA.y, a->y);
       dp = b->a * dy;
@@ -573,7 +574,7 @@ grAADrawTriEdgeSense(const GrVertex *a,const GrVertex *b,const GrVertex *c)
       GR_SETF( hw->Fdady, b->a);
       dp *= m;
       GR_SETF( hw->Fdadx, dp);
-      P6FENCE_CMD( GR_SETF( hw->triangleCMD, -dx ) );
+      P6FENCE_CMD( GR_SETF_SYNC( hw->triangleCMD, -dx ) );
     }
     else if (dy == 0.0f) {
 
@@ -592,7 +593,7 @@ grAADrawTriEdgeSense(const GrVertex *a,const GrVertex *b,const GrVertex *c)
 
       GR_SET( hw->Fdadx, 0);
       GR_SETF( hw->Fdady, b->a);
-      P6FENCE_CMD( GR_SETF( hw->triangleCMD, -dx ) );
+      P6FENCE_CMD( GR_SETF_SYNC( hw->triangleCMD, -dx ) );
     
       GR_SETF( hw->FvB.x, a->x);
       GR_SETF( hw->FvB.y, a->y);
@@ -603,7 +604,7 @@ grAADrawTriEdgeSense(const GrVertex *a,const GrVertex *b,const GrVertex *c)
       GR_SETF( hw->Fdady, a->a);
       dp *= m;
       GR_SETF( hw->Fdadx, dp);
-      P6FENCE_CMD( GR_SETF( hw->triangleCMD, dx ) );
+      P6FENCE_CMD( GR_SETF_SYNC( hw->triangleCMD, dx ) );
     }
     else {
 
@@ -623,7 +624,7 @@ grAADrawTriEdgeSense(const GrVertex *a,const GrVertex *b,const GrVertex *c)
       dp = -a->a * dy * m;
       GR_SETF( hw->Fdadx, dp);
       GR_SETF( hw->Fdady, a->a);
-      P6FENCE_CMD( GR_SETF( hw->triangleCMD, -dx ) );
+      P6FENCE_CMD( GR_SETF_SYNC( hw->triangleCMD, -dx ) );
 
       GR_SETF( hw->FvA.x, b->x);
       GR_SETF( hw->FvA.y, b->y - _GlideRoot.pool.f1);
@@ -639,7 +640,7 @@ grAADrawTriEdgeSense(const GrVertex *a,const GrVertex *b,const GrVertex *c)
       GR_SETF( hw->Fdady, b->a);
       dp *= m;
       GR_SETF( hw->Fdadx, dp);
-      P6FENCE_CMD( GR_SETF( hw->triangleCMD, dx ) );
+      P6FENCE_CMD( GR_SETF_SYNC( hw->triangleCMD, dx ) );
     }
     
     break;
@@ -661,7 +662,7 @@ grAADrawTriEdgeSense(const GrVertex *a,const GrVertex *b,const GrVertex *c)
     GR_SETF( hw->Fdadx, -a->a);
     dp *= m;
     GR_SETF( hw->Fdady, dp);
-    P6FENCE_CMD( GR_SETF( hw->triangleCMD, dy ) );
+    P6FENCE_CMD( GR_SETF_SYNC( hw->triangleCMD, dy ) );
     
     GR_SETF( hw->FvA.x, a->x);
     dp = b->a * dx;
@@ -673,7 +674,7 @@ grAADrawTriEdgeSense(const GrVertex *a,const GrVertex *b,const GrVertex *c)
     GR_SETF( hw->Fdadx, -b->a);
     dp *= m;
     GR_SETF( hw->Fdady, dp);
-    P6FENCE_CMD( GR_SETF( hw->triangleCMD, dy ) );   
+    P6FENCE_CMD( GR_SETF_SYNC( hw->triangleCMD, dy ) );   
     break;
   }
   GR_END_SLOPPY();
@@ -837,6 +838,4 @@ GR_ENTRY(grAADrawPolygonVertexList, void, (const int nverts, const GrVertex vlis
   }
   GR_END();
 } /* grAADrawPolygonVertexList */
-
-
 

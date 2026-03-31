@@ -400,6 +400,7 @@ typedef struct GrGC_s
       FxU32
         /* fifoFree,               # Free entries in FIFO */
         swFifoLWM;              /* fudge factor */
+      FxU32 irixFifoFastSkipCount; /* consecutive GR_CHECK_FOR_ROOM fast-path skips */
     } sst1Dep;
     
   } hwDep;
@@ -520,6 +521,47 @@ struct _GlideRoot_s {
 
     FxU32       palDownloads;   /* number of palette download calls     */
     FxU32       palBytes;       /* number of palette bytes downloaded   */
+
+    FxU32       irixClearIdleWaits;
+    FxU32       irixClearIdlePolls;
+    FxU32       irixClearLatchDelays;
+    FxU32       irixSwapPendingWaits;
+    FxU32       irixSwapPendingPolls;
+    FxU32       irixTexIdleCalls;
+    FxU32       irixFifoRecacheCalls;
+    FxU32       irixFifoFastPathHits;
+    FxU32       irixFifoRoomWaits;
+    FxU32       irixFifoRoomWaitPolls;
+    FxI32       irixFifoFreeMin;    /* min gc->state.fifoFree seen after _grReCacheFifo */
+    FxI32       irixFifoFreeMax;    /* max gc->state.fifoFree seen after _grReCacheFifo */
+    FxU32       irixMmioSetWrites;
+    FxU32       irixMmioSet16Writes;
+    FxU32       irixMmioSetfWrites;
+    FxU32       irixMmioSetfGdrawWrites;
+    FxU32       irixMmioSetfGaaWrites;
+    FxU32       irixMmioSetfGxdrawWrites;
+    FxU32       irixMmioSetfGxTrisetupWrites;
+    FxU32       irixMmioSetfGxNoGradWrites;
+    FxU32       irixMmioSetfGglideWrites;
+    FxU32       irixMmioSetfOtherWrites;
+    FxU32       irixGxTriCalls;
+    FxU32       irixGxTriCurTriSizeSum;
+    FxU32       irixGxTriCurTriSizeNoGradSum;
+    FxU32       irixGxTriHasDrgb;
+    FxU32       irixGxTriHasOoz;
+    FxU32       irixGxTriHasAlpha;
+    FxU32       irixGxTriHasSt0;
+    FxU32       irixGxTriHasOowFbi;
+    FxU32       irixGxTriHasW0;
+    FxU32       irixGxTriHasSt1;
+    FxU32       irixGxTriHasW1;
+    FxU32       irixGxTriOowW0Both;
+    FxU32       irixGxTriOowW0EqualTris;
+    FxU32       irixGxTriOowW0DiffTris;
+    FxU32       irixClipTriCalls;
+    FxU32       irixClipCalcParamsCalls;
+    FxU32       irixClipCalcParamsOowCalls;
+    FxU32       irixMmioSyncCalls;
   } stats;
 
   GrHwConfiguration     hwConfig;
@@ -531,6 +573,18 @@ struct _GlideRoot_s {
 extern struct _GlideRoot_s GR_CDECL _GlideRoot;
 #if GLIDE_MULTIPLATFORM
 extern GrGCFuncs _curGCFuncs;
+#endif
+
+#ifndef GLIDE_IRIX_INSTRUMENT
+#define GLIDE_IRIX_INSTRUMENT 0
+#endif
+
+#if GLIDE_IRIX_INSTRUMENT
+#define GR_IRIX_STAT_INC(field) (_GlideRoot.stats.field++)
+#define GR_IRIX_STAT_ADD(field, value) (_GlideRoot.stats.field += (value))
+#else
+#define GR_IRIX_STAT_INC(field) ((void)0)
+#define GR_IRIX_STAT_ADD(field, value) ((void)0)
 #endif
 /*==========================================================================*/
 /* Macros for declaring functions */
@@ -1025,27 +1079,46 @@ _grSst96CheckFifoData(void);
 /* NOTE: fifoFree is the number of entries, each is 8 bytes */
 #if defined(__sgi__) || defined(IRIX)
 /*
- * IRIX/MACE: The SGI O2 MACE PCI bridge counts every PCI RETRY response
- * from the Voodoo1 memory FIFO; after enough accumulate it enters a
- * permanent fault that halts all PCI traffic (system freeze).  The cached
- * SW fifoFree estimate only re-reads hardware when it goes below zero, which
- * can be AFTER the Voodoo1 has already reached its internal high-water mark
- * and started asserting RETRY.  To prevent any RETRY on writes we must read
- * the actual hardware FIFO level before every write batch and only proceed
- * when the level confirms enough space exists.  The status register is
- * always readable without asserting RETRY, so this is safe.
+ * IRIX/MACE: The SGI O2 MACE PCI bridge accumulates PCI RETRY responses
+ * from the Voodoo1 FIFO; too many in rapid succession causes a permanent
+ * fault that locks the Voodoo1 out of the PCI bus -- the system itself
+ * keeps running but the card is unresponsive until the next reboot.
  *
- * Performance cost: one PCI read (~5µs) per GR_SET_EXPECTED_SIZE call
- * (~5-10 calls per triangle setup).  This is a deliberate trade-off for
- * correctness on MACE.
+ * _grReCacheFifo does a PCI status register read which (a) refreshes the
+ * SW fifoFree estimate and (b) provides a ~300ns round-trip delay that
+ * paces the write rate and prevents RETRY accumulation on MACE.
+ *
+ * Counter-based fast path: allow at most IRIX_FIFO_FAST_MAX consecutive
+ * skips of the recache.  On the (FAST_MAX+1)th call we force a recache
+ * regardless of fifoFree, guaranteeing pacing reads at a minimum rate.
+ * We also always recache when fifoFree <= 0 to catch SW estimate drift.
+ *
+ * With FAST_MAX=4: ~80% fewer PCI reads vs always-recache.
+ *
+ * NOTE: this value is CPU-speed sensitive.  A faster CPU submits the
+ * N fast-path batches in less wall time, increasing the peak write rate
+ * between pacing reads.  If a CPU upgrade causes MACE RETRY faults,
+ * decrease IRIX_FIFO_FAST_MAX (try 2, then 1 as fallback).
  */
+#define IRIX_FIFO_FAST_MAX 4
 #define GR_CHECK_FOR_ROOM(n) \
 { \
-  _grReCacheFifo(n); \
-  while (gc->state.fifoFree < 0) { \
-    _GlideRoot.stats.fifoSpins++; \
-    usleep(1000); \
+  FxI32 fifoFree = gc->state.fifoFree - (n); \
+  if (fifoFree > 0 && gc->hwDep.sst1Dep.irixFifoFastSkipCount < IRIX_FIFO_FAST_MAX) { \
+    gc->state.fifoFree = fifoFree; \
+    gc->hwDep.sst1Dep.irixFifoFastSkipCount++; \
+    GR_IRIX_STAT_INC(irixFifoFastPathHits); \
+  } else { \
+    gc->hwDep.sst1Dep.irixFifoFastSkipCount = 0; \
     _grReCacheFifo(n); \
+    if (gc->state.fifoFree < 0) \
+      GR_IRIX_STAT_INC(irixFifoRoomWaits); \
+    while (gc->state.fifoFree < 0) { \
+      _GlideRoot.stats.fifoSpins++; \
+      GR_IRIX_STAT_INC(irixFifoRoomWaitPolls); \
+      usleep(750); \
+      _grReCacheFifo(n); \
+    } \
   } \
 }
 #else
@@ -1281,7 +1354,7 @@ if (_GlideRoot.CPUType == 6) {\
   GR_SETF(hw->FvB.y, 0.f);\
   GR_SETF(hw->FvC.x, 100.f);\
   GR_SETF(hw->FvC.y, 100.f);\
-  GR_SETF(hw->FtriangleCMD, 1.f);\
+  GR_SETF_SYNC(hw->FtriangleCMD, 1.f);\
   GR_SET(hw->fbzMode, gc->state.fbi_config.fbzMode);\
   for (i = 0; i < 23; i++) GR_SET(hw->nopCMD, 0); \
   GR_CHECK_SIZE(); \
@@ -1382,7 +1455,7 @@ if (_GlideRoot.CPUType == 6) {\
 extern void irix_sync(void); /* MIPS SYNC wrapper in irix_sync.s */
 #define SET(d,s)   { (d) = (s);              irix_sync(); }
 #define SET16(d,s) { (d) = (s);              (void)(*(volatile FxU16 *)&(d)); }
-#define SETF(d,s)  { (*(float *)&(d)) = (s); irix_sync(); }
+#define SETF(d,s)  { (*(float *)&(d)) = (s); }
 #else
 #define SET(d,s)        d = s
 #define SET16(d,s)      d = s
@@ -1406,15 +1479,79 @@ extern void irix_sync(void); /* MIPS SYNC wrapper in irix_sync.s */
   extern void GR_CDECL _GR_SET(void *, unsigned long);
   extern void GR_CDECL _GR_SETF(void *, float);
 
+#  if !defined(GLIDE_IRIX_MMIO_TAG)
+#    define GLIDE_IRIX_MMIO_TAG 0
+#  endif
+
+#  define GLIDE_IRIX_MMIO_TAG_OTHER   0
+#  define GLIDE_IRIX_MMIO_TAG_GDRAW   1
+#  define GLIDE_IRIX_MMIO_TAG_GAA     2
+#  define GLIDE_IRIX_MMIO_TAG_GXDRAW  3
+#  define GLIDE_IRIX_MMIO_TAG_GGLIDE  4
+
+#  if GLIDE_IRIX_INSTRUMENT
+#    if GLIDE_IRIX_MMIO_TAG == GLIDE_IRIX_MMIO_TAG_GDRAW
+#      define GR_IRIX_COUNT_SETF_PATH() GR_IRIX_STAT_INC(irixMmioSetfGdrawWrites)
+#    elif GLIDE_IRIX_MMIO_TAG == GLIDE_IRIX_MMIO_TAG_GAA
+#      define GR_IRIX_COUNT_SETF_PATH() GR_IRIX_STAT_INC(irixMmioSetfGaaWrites)
+#    elif GLIDE_IRIX_MMIO_TAG == GLIDE_IRIX_MMIO_TAG_GXDRAW
+#      define GR_IRIX_COUNT_SETF_PATH() GR_IRIX_STAT_INC(irixMmioSetfGxdrawWrites)
+#    elif GLIDE_IRIX_MMIO_TAG == GLIDE_IRIX_MMIO_TAG_GGLIDE
+#      define GR_IRIX_COUNT_SETF_PATH() GR_IRIX_STAT_INC(irixMmioSetfGglideWrites)
+#    else
+#      define GR_IRIX_COUNT_SETF_PATH() GR_IRIX_STAT_INC(irixMmioSetfOtherWrites)
+#    endif
+#    define GR_IRIX_COUNT_SETF() \
+      do { \
+        GR_IRIX_STAT_INC(irixMmioSetfWrites); \
+        GR_IRIX_COUNT_SETF_PATH(); \
+      } while (0)
+#  else
+#    define GR_IRIX_COUNT_SETF_PATH() ((void)0)
+#    define GR_IRIX_COUNT_SETF() ((void)0)
+#  endif
+
   #define GR_GET(s)     _GR_GET(&(s))
-  #define GR_SET(d,s)   {_GR_SET(&(d),s); SET(d,s); GR_INC_SIZE(4);}
-  #define GR_SETF(d,s)  {_GR_SETF(&(d),s); SETF(d,s); GR_INC_SIZE(4);}
-  #define GR_SET16(d,s) {_GR_SET16(&(d),s); SET16(d,s); GR_INC_SIZE(2);}
+  #define GR_SET(d,s)   {_GR_SET(&(d),s); GR_IRIX_STAT_INC(irixMmioSetWrites); GR_IRIX_STAT_INC(irixMmioSyncCalls); SET(d,s); GR_INC_SIZE(4);}
+  #define GR_SETF(d,s)  {_GR_SETF(&(d),s); GR_IRIX_COUNT_SETF(); SETF(d,s); GR_INC_SIZE(4);}
+  #define GR_SET16(d,s) {_GR_SET16(&(d),s); GR_IRIX_STAT_INC(irixMmioSet16Writes); SET16(d,s); GR_INC_SIZE(2);}
 #else
+#  if !defined(GLIDE_IRIX_MMIO_TAG)
+#    define GLIDE_IRIX_MMIO_TAG 0
+#  endif
+
+#  define GLIDE_IRIX_MMIO_TAG_OTHER   0
+#  define GLIDE_IRIX_MMIO_TAG_GDRAW   1
+#  define GLIDE_IRIX_MMIO_TAG_GAA     2
+#  define GLIDE_IRIX_MMIO_TAG_GXDRAW  3
+#  define GLIDE_IRIX_MMIO_TAG_GGLIDE  4
+
+#  if GLIDE_IRIX_INSTRUMENT
+#    if GLIDE_IRIX_MMIO_TAG == GLIDE_IRIX_MMIO_TAG_GDRAW
+#      define GR_IRIX_COUNT_SETF_PATH() GR_IRIX_STAT_INC(irixMmioSetfGdrawWrites)
+#    elif GLIDE_IRIX_MMIO_TAG == GLIDE_IRIX_MMIO_TAG_GAA
+#      define GR_IRIX_COUNT_SETF_PATH() GR_IRIX_STAT_INC(irixMmioSetfGaaWrites)
+#    elif GLIDE_IRIX_MMIO_TAG == GLIDE_IRIX_MMIO_TAG_GXDRAW
+#      define GR_IRIX_COUNT_SETF_PATH() GR_IRIX_STAT_INC(irixMmioSetfGxdrawWrites)
+#    elif GLIDE_IRIX_MMIO_TAG == GLIDE_IRIX_MMIO_TAG_GGLIDE
+#      define GR_IRIX_COUNT_SETF_PATH() GR_IRIX_STAT_INC(irixMmioSetfGglideWrites)
+#    else
+#      define GR_IRIX_COUNT_SETF_PATH() GR_IRIX_STAT_INC(irixMmioSetfOtherWrites)
+#    endif
+#    define GR_IRIX_COUNT_SETF() \
+      do { \
+        GR_IRIX_STAT_INC(irixMmioSetfWrites); \
+        GR_IRIX_COUNT_SETF_PATH(); \
+      } while (0)
+#  else
+#    define GR_IRIX_COUNT_SETF_PATH() ((void)0)
+#    define GR_IRIX_COUNT_SETF() ((void)0)
+#  endif
+
   #define GR_GET(s)     GET(s)
-  #define GR_SET(d,s)   {SET(d,s); GR_INC_SIZE(4);}
-  #define GR_SETF(d,s)  {SETF(d,s); GR_INC_SIZE(4);}
-  #define GR_SET16(d,s) {SET16(d,s); GR_INC_SIZE(2);}
+  #define GR_SET(d,s)   {GR_IRIX_STAT_INC(irixMmioSetWrites); GR_IRIX_STAT_INC(irixMmioSyncCalls); SET(d,s); GR_INC_SIZE(4);}
+  #define GR_SETF(d,s)  {GR_IRIX_COUNT_SETF(); SETF(d,s); GR_INC_SIZE(4);}
+  #define GR_SET16(d,s) {GR_IRIX_STAT_INC(irixMmioSet16Writes); SET16(d,s); GR_INC_SIZE(2);}
 #endif
 
 /*
@@ -1433,7 +1570,11 @@ extern void irix_sync(void); /* MIPS SYNC wrapper in irix_sync.s */
  */
 #if defined(__sgi__) || defined(IRIX)
 #  define GR_SET_SYNC(d,s)  GR_SET(d,s)
-#  define GR_SETF_SYNC(d,s) GR_SETF(d,s)
+#  if defined(GLIDE_DEBUG) && !defined(SST96)
+#    define GR_SETF_SYNC(d,s) {_GR_SETF(&(d),s); GR_IRIX_COUNT_SETF(); GR_IRIX_STAT_INC(irixMmioSyncCalls); (*(float *)&(d)) = (s); irix_sync(); GR_INC_SIZE(4);}
+#  else
+#    define GR_SETF_SYNC(d,s) {GR_IRIX_COUNT_SETF(); GR_IRIX_STAT_INC(irixMmioSyncCalls); (*(float *)&(d)) = (s); irix_sync(); GR_INC_SIZE(4);}
+#  endif
 #else
 #  define GR_SET_SYNC(d,s)  GR_SET(d,s)
 #  define GR_SETF_SYNC(d,s) GR_SETF(d,s)
@@ -1493,4 +1634,3 @@ extern FxU16 *rle_line_end;
 #endif /* __WATCOMC__ */
 
 #endif /* __FXGLIDE_H__ */
-

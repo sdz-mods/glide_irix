@@ -42,6 +42,7 @@ static void
 calcParams(const GrVertex *a, const GrVertex *b, GrVertex *isect, float d)
 {
   GR_DCL_GC;
+  GR_IRIX_STAT_INC(irixClipCalcParamsCalls);
   if (gc->state.paramIndex & STATE_REQUIRES_IT_DRGB) {
     isect->r = a->r + d * ( b->r - a->r );
     isect->g = a->g + d * ( b->g - a->g );
@@ -57,6 +58,7 @@ calcParams(const GrVertex *a, const GrVertex *b, GrVertex *isect, float d)
   }
 
   if (gc->state.paramIndex & STATE_REQUIRES_OOW_FBI) {
+    GR_IRIX_STAT_INC(irixClipCalcParamsOowCalls);
     isect->oow = a->oow + d * ( b->oow - a->oow);
   }
 
@@ -253,6 +255,8 @@ GR_DIENTRY(guDrawTriangleWithClip, void,
   int
     i,
     outlength;
+
+  GR_IRIX_STAT_INC(irixClipTriCalls);
 
   GDBG_INFO_MORE((99,"guDrawTriangleWithClip(0x%x,0x%x,0x%x)\n",a,b,c));
 

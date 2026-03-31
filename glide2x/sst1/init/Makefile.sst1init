@@ -12,6 +12,7 @@
 CC     = cc
 ABI    = -n32
 MIPSISA = -mips4
+INSTRUMENT ?= 0
 
 DEFINES = -D__sgi__=1   \
           -D_MIPSEB=1   \
@@ -20,6 +21,7 @@ DEFINES = -D__sgi__=1   \
           -DSST1=1          \
           -DINIT_LINUX=1    \
           -DFX_DLL_ENABLE=0 \
+          -DGLIDE_IRIX_INSTRUMENT=$(INSTRUMENT) \
           -DGLIDE_IRIX_DBG_INIT=1
           # Add -DGLIDE_IRIX_DBG_VERBOSE=1 to enable verbose init debug output
 
@@ -31,7 +33,7 @@ INCLUDES = -I. \
            -I../../../swlibs/newpci/pcilib \
            -I../../../swlibs/include
 
-CFLAGS = $(ABI) $(MIPSISA) -O2 $(DEFINES) $(INCLUDES) -fullwarn
+CFLAGS = $(ABI) $(MIPSISA) -O3 -r5000 $(DEFINES) $(INCLUDES) -fullwarn
 
 AR     = ar
 TARGET = libsst1init_irix.a

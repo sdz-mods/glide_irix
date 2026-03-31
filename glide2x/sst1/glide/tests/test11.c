@@ -117,6 +117,7 @@ int main( int argc, char **argv) {
     }
 
 
+
     tlConOutput( "Press any key to quit\n" );
     while( frames-- && tlOkToRender()) {
         GrLfbInfo_t info;

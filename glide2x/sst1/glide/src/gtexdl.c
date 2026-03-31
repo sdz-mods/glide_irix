@@ -325,6 +325,7 @@ GR_ENTRY(grTexDownloadMipMapLevelPartial, void, ( GrChipID_t tmu, FxU32 startAdd
    * the chip is still rendering the previous frame (typical render time can
    * exceed 10ms at low clock speeds).  grSstIdle() uses sst1InitIdleLoop()
    * which already has the 1ms/1000-poll MACE fix from initvg/util.c. */
+  GR_IRIX_STAT_INC(irixTexIdleCalls);
   grSstIdle();
 /* MACE (O2/IP32 PCI bridge) performs a full 4-byte endian reversal on every
  * 32-bit PCI write (big-endian MIPS -> little-endian Voodoo1).
@@ -754,7 +755,7 @@ GR_ENTRY(ConvertAndDownloadRle, void, ( GrChipID_t tmu, FxU32 startAddress, GrLO
          SET_TRAM16( tex_address + ( s << 2 ), *( FxU32 * ) src );
          src+=2;
       }
-   }
+    }
 
   /* Flush the write buffers after the texture downloads */
   P6FENCE;

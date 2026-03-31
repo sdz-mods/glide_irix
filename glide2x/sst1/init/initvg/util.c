@@ -38,6 +38,15 @@
 #include <sst1vid.h>
 #include <sst1init.h>
 
+#if (defined(__sgi__) || defined(IRIX)) && GLIDE_IRIX_INSTRUMENT
+FxU32 irixInitIdleLoopCalls = 0;
+FxU32 irixInitIdleLoopPolls = 0;
+FxU32 irixInitIdleFBICalls = 0;
+FxU32 irixInitIdleFBIPolls = 0;
+FxU32 irixInitIdleFBINoNOPCalls = 0;
+FxU32 irixInitIdleFBINoNOPPolls = 0;
+#endif
+
 /*
 ** sst1InitIdle():
 **  Return idle condition of SST-1
@@ -94,18 +103,27 @@ void sst1InitIdleLoop(FxU32 *sstbase)
 #if defined(__sgi__) || defined(IRIX)
     /* MACE fix: original has no cap and no sleep — rapid status reads
      * trigger the MACE PCI RETRY fault on the SGI O2.  Cap at 1000
-     * polls × 1ms = 1s max; sleep 1ms between each poll. */
+     * polls × 0.75ms = 0.75s max; sleep 0.75ms between each poll. */
     {
         int _irix_idle_spins = 0;
+#if GLIDE_IRIX_INSTRUMENT
+        irixInitIdleLoopCalls++;
+#endif
         while(1) {
             if(!(sst1InitReturnStatus(sstbase) & SST_BUSY)) {
                 if(++cntr >= 3)
                     break;
-            } else
+                /* Not busy: no RETRY risk, no sleep needed */
+            } else {
+                /* Busy: pace reads to prevent MACE RETRY burst fault */
                 cntr = 0;
-            if (++_irix_idle_spins >= 1000) break;
-            usleep(1000);
+                if (++_irix_idle_spins >= 1000) break;
+                usleep(750);
+            }
         }
+#if GLIDE_IRIX_INSTRUMENT
+        irixInitIdleLoopPolls += _irix_idle_spins;
+#endif
     }
 #else
     while(1) {
@@ -140,15 +158,23 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitIdleFBI(FxU32 *sstbase)
 #if defined(__sgi__) || defined(IRIX)
     {
         int _irix_idle_spins = 0;
+#if GLIDE_IRIX_INSTRUMENT
+        irixInitIdleFBICalls++;
+#endif
         while(1) {
             if(!(sst1InitReturnStatus(sstbase) & SST_FBI_BUSY)) {
                 if(++cntr >= 3)
                     break;
-            } else
+                /* Not busy: no RETRY risk, no sleep needed */
+            } else {
                 cntr = 0;
-            if (++_irix_idle_spins >= 1000) break;
-            usleep(1000);
+                if (++_irix_idle_spins >= 1000) break;
+                usleep(750);
+            }
         }
+#if GLIDE_IRIX_INSTRUMENT
+        irixInitIdleFBIPolls += _irix_idle_spins;
+#endif
     }
 #else
     while(1) {
@@ -186,15 +212,23 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitIdleFBINoNOP(FxU32 *sstbase)
 #if defined(__sgi__) || defined(IRIX)
     {
         int _irix_idle_spins = 0;
+#if GLIDE_IRIX_INSTRUMENT
+        irixInitIdleFBINoNOPCalls++;
+#endif
         while(1) {
             if(!(sst1InitReturnStatus(sstbase) & SST_FBI_BUSY)) {
                 if(++cntr > 5)
                     break;
-            } else
+                /* Not busy: no RETRY risk, no sleep needed */
+            } else {
                 cntr = 0;
-            if (++_irix_idle_spins >= 1000) break;
-            usleep(1000);
+                if (++_irix_idle_spins >= 1000) break;
+                usleep(750);
+            }
         }
+#if GLIDE_IRIX_INSTRUMENT
+        irixInitIdleFBINoNOPPolls += _irix_idle_spins;
+#endif
     }
 #else
     while(1) {

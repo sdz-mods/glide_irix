@@ -62,6 +62,7 @@
 #define FX_DLL_DEFINITION
 #include <fxdll.h>
 #include <glide.h>
+#define GLIDE_IRIX_MMIO_TAG GLIDE_IRIX_MMIO_TAG_GDRAW
 #include "fxglide.h"
 
 #include <memory.h>
@@ -272,11 +273,11 @@ GR_ENTRY(grDrawLine, void, ( const GrVertex *a, const GrVertex *b ))
          GR_SETF( fp[DPDY_OFFSET>>2] , _GlideRoot.pool.f0 );
        }
      }
-     P6FENCE_CMD( GR_SETF(hw->FtriangleCMD,_GlideRoot.pool.ftemp1) );
+     P6FENCE_CMD( GR_SETF_SYNC(hw->FtriangleCMD,_GlideRoot.pool.ftemp1) );
 
      GR_SETF(hw->FvB.x,a->x);
      GR_SETF(hw->FvB.y,a->y + _GlideRoot.pool.fHalf);
-     P6FENCE_CMD( GR_SETF(hw->FtriangleCMD,-_GlideRoot.pool.ftemp1));
+     P6FENCE_CMD( GR_SETF_SYNC(hw->FtriangleCMD,-_GlideRoot.pool.ftemp1));
    }
 
    /*
@@ -517,4 +518,3 @@ GR_DDFUNC(_grColorCombineDelta0Mode, void, ( FxBool delta0mode ))
   GR_END();
 
 } /* _grColorCombineDeltaMode */
-
