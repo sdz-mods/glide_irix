@@ -213,6 +213,17 @@ GR_ENTRY(grTexDownloadMipMapLevelPartial, void, ( GrChipID_t tmu, FxU32 startAdd
   GDBG_INFO_MORE((gc->myLevel,"(%d,0x%x, %d,%d,%d, %d,%d 0x%x, %d,%d)\n",
                   tmu,startAddress,thisLod,largeLod,aspectRatio,
                   format,evenOdd,data,t,max_t));
+#if defined(__sgi__) || defined(IRIX)
+  {
+    static FxU32 _tmu_dl_count[2] = {0, 0};
+    static FxU32 _tmu_dl_total = 0;
+    if (tmu < 2) _tmu_dl_count[tmu]++;
+    _tmu_dl_total++;
+    if (_tmu_dl_total % 100 == 0)
+      fprintf(stderr, "[glide] texDL: TMU0=%u TMU1=%u (total=%u)\n",
+              _tmu_dl_count[0], _tmu_dl_count[1], _tmu_dl_total);
+  }
+#endif
   size = _grTexTextureMemRequired(thisLod, thisLod, aspectRatio, format, evenOdd);
   GR_CHECK_TMU(myName, tmu);
   GR_CHECK_F(myName, startAddress + size > gc->tmu_state[tmu].total_mem,
@@ -312,21 +323,16 @@ GR_ENTRY(grTexDownloadMipMapLevelPartial, void, ( GrChipID_t tmu, FxU32 startAdd
    * transactions — causing texture uploads during active rendering to stall
    * for many minutes (the root cause of the 17-minute Q2 map load time).
    *
-   * Fix (mirrors grBufferSwap IRIX fix):
-   *   - sleep 1 ms between polls so MACE never sees a RETRY burst
-   *   - cap at 10 polls (10 ms max) — chip is typically idle within 1-5 ms;
-   *     10 ms is a safe upper bound without stalling uploads for hundreds of ms
-   * Prior cap was 200 (200 ms) which caused ~416 ms per texture upload in Q2
-   * (spin-wait fires ~2x per upload × 200 ms = 32 s/frame for 78 textures). */
-  /* IRIX/MACE: use the full MACE-safe idle (1ms poll, 1000-poll cap) rather
-   * than the old 10ms cap.  Texture aperture writes bypass the memory FIFO
-   * and go directly to Voodoo1 DRAM; the card asserts PCI RETRY for every
-   * write while the TMU memory bus is active.  A 10ms cap is not enough when
-   * the chip is still rendering the previous frame (typical render time can
-   * exceed 10ms at low clock speeds).  grSstIdle() uses sst1InitIdleLoop()
-   * which already has the 1ms/1000-poll MACE fix from initvg/util.c. */
+   * Optimization: skip grSstIdle() if no render command has been issued since
+   * the last grSstIdle() (irixRenderPending == FXFALSE).  During map loading,
+   * hundreds of consecutive texture uploads share a single idle wait for the
+   * first upload; subsequent uploads skip it entirely — chip is already idle.
+   * During active rendering, irixRenderPending is set FXTRUE by every triangle
+   * or fastfill command, so the idle check is never skipped mid-frame. */
   GR_IRIX_STAT_INC(irixTexIdleCalls);
-  grSstIdle();
+  if (gc->hwDep.sst1Dep.irixRenderPending) {
+    grSstIdle();
+  }
 /* MACE (O2/IP32 PCI bridge) performs a full 4-byte endian reversal on every
  * 32-bit PCI write (big-endian MIPS -> little-endian Voodoo1).
  *

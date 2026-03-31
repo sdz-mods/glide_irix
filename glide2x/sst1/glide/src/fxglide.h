@@ -401,6 +401,9 @@ typedef struct GrGC_s
         /* fifoFree,               # Free entries in FIFO */
         swFifoLWM;              /* fudge factor */
       FxU32 irixFifoFastSkipCount; /* consecutive GR_CHECK_FOR_ROOM fast-path skips */
+#if defined(__sgi__) || defined(IRIX)
+      FxBool irixRenderPending;    /* FXTRUE if render cmd issued since last grSstIdle() */
+#endif
     } sst1Dep;
     
   } hwDep;

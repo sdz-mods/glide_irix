@@ -563,6 +563,9 @@ GDBG_INFO((285,"p0,1y: %g %g dpdy: %g\n",dpBC * dxAB,dpAB * dxBC,dpdy));
    * On IRIX/MIPS, GR_SETF_SYNC adds a PCI readback to drain the MIPS write
    * buffer and prevent MACE RETRY accumulation from unfenced vertex writes.
    * P6FENCE_CMD is a no-op on MIPS (CPUType != 6). */
+#if defined(__sgi__) || defined(IRIX)
+  gc->hwDep.sst1Dep.irixRenderPending = FXTRUE;
+#endif
   P6FENCE_CMD( GX_SETF_TRI_SYNC( hw->FtriangleCMD, _GlideRoot.pool.ftemp1 ) );
   _GlideRoot.stats.trisDrawn++;
 
@@ -900,6 +903,9 @@ GR_DDFUNC(_trisetup_nogradients, FxI32, ( const GrVertex *va, const GrVertex *vb
    * On IRIX/MIPS, GR_SETF_SYNC adds a PCI readback to drain the MIPS write
    * buffer and prevent MACE RETRY accumulation from unfenced vertex writes.
    * P6FENCE_CMD is a no-op on MIPS (CPUType != 6). */
+#if defined(__sgi__) || defined(IRIX)
+  gc->hwDep.sst1Dep.irixRenderPending = FXTRUE;
+#endif
   P6FENCE_CMD( GX_SETF_NG_SYNC( hw->FtriangleCMD, _GlideRoot.pool.ftemp1 ) );
   _GlideRoot.stats.trisDrawn++;
 

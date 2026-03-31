@@ -1144,12 +1144,30 @@ FX_EXPORT FxBool FX_CSTYLE sst1InitSetGrxClk(FxU32 *sstbase,
         return(FXFALSE);
 
     /* Fix problem where first Texture downloads to TMU weren't being
-       received properly */
+       received properly.
+       IRIX/MACE: write to a dummy address in the alias region past TMU texture
+       memory to flush the TMU pipeline after a clock change.
+       On 1-TMU boards: 0xF00000 is 3 MB into the alias region
+       (0xC00000-0xFFFFFF) past TMU0 (0x800000-0xBFFFFF). Safe -- the card
+       does not decode that address and MACE sees no RETRY.
+       On 2-TMU boards: 0xF00000 falls 3 MB into TMU1 texture memory
+       (0xC00000-0xFFFFFF). TMU1 is real, present, and not yet initialised;
+       it responds to the write with a flood of PCI RETRY responses that trips
+       the MACE fault and locks the card off the bus. Write to the start of
+       TMU0 texture memory (0x800000) instead -- TMU0 is stable after the
+       200 000-iteration clock stabilisation loop above and accepts the write
+       without RETRY. */
+    {
+        long tex_kick_offset = (sst1CurrentBoard->numberTmus < 2)
+                               ? 0xf00000L : 0x800000L;
 #ifdef GLIDE_IRIX_DBG_INIT
-    fprintf(stderr, "SetGrxClk: tex write sstbase=%p addr=%p\n",
-            (void*)sstbase, (void*)(0xf00000 + (long) sstbase)); fflush(stderr);
+        fprintf(stderr, "SetGrxClk: tex write sstbase=%p addr=%p (numberTmus=%u)\n",
+                (void*)sstbase,
+                (void*)(tex_kick_offset + (long) sstbase),
+                (unsigned)sst1CurrentBoard->numberTmus); fflush(stderr);
 #endif
-    ISET(*(long *) (0xf00000 + (long) sstbase), 0xdeadbeef);
+        ISET(*(long *)(tex_kick_offset + (long) sstbase), 0xdeadbeef);
+    }
 
     if(sst1InitReturnStatus(sstbase) & SST_TREX_BUSY) {
         INIT_PRINTF(("sst1InitSetGrxClk(): Resetting TMUs after clock change...\n"));

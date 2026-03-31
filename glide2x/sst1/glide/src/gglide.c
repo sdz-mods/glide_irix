@@ -535,6 +535,9 @@ GR_ENTRY(grBufferClear, void, ( GrColor_t color, GrAlpha_t alpha, FxU16 depth ))
 #ifdef GLIDE_IRIX_DBG_VERBOSE
   fprintf(stderr, "MARK: grBufferClear before fastfillCMD zaColor=0x%x\n", (unsigned)zacolor);
 #endif
+#if defined(__sgi__) || defined(IRIX)
+  gc->hwDep.sst1Dep.irixRenderPending = FXTRUE;
+#endif
   P6FENCE_CMD( GR_SET_SYNC(hw->fastfillCMD,1) );
 #if defined(__sgi__) || defined(IRIX)
   /* IRIX/Voodoo1: wait after fastfillCMD before restoring zaColor, but

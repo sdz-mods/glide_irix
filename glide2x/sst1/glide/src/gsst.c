@@ -1389,6 +1389,9 @@ GR_ENTRY(grSstIdle, void, (void))
 #endif
 
   initIdle();
+#if defined(__sgi__) || defined(IRIX)
+  gc->hwDep.sst1Dep.irixRenderPending = FXFALSE;
+#endif
 
   GR_END_SLOPPY();
 } /* grSstIdle */

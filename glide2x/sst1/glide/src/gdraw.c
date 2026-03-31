@@ -168,6 +168,9 @@ GR_ENTRY(grDrawPoint, void, ( const GrVertex *p ))
     dlp++;
     i = dlp->i;
   }
+#if defined(__sgi__) || defined(IRIX)
+  gc->hwDep.sst1Dep.irixRenderPending = FXTRUE;
+#endif
   P6FENCE_CMD( GR_SET( hw->triangleCMD, 0x0000001UL) );
 
   GR_END_SLOPPY();
@@ -273,6 +276,9 @@ GR_ENTRY(grDrawLine, void, ( const GrVertex *a, const GrVertex *b ))
          GR_SETF( fp[DPDY_OFFSET>>2] , _GlideRoot.pool.f0 );
        }
      }
+#if defined(__sgi__) || defined(IRIX)
+     gc->hwDep.sst1Dep.irixRenderPending = FXTRUE;
+#endif
      P6FENCE_CMD( GR_SETF_SYNC(hw->FtriangleCMD,_GlideRoot.pool.ftemp1) );
 
      GR_SETF(hw->FvB.x,a->x);
@@ -319,8 +325,11 @@ GR_ENTRY(grDrawLine, void, ( const GrVertex *a, const GrVertex *b ))
          GR_SETF( fp[DPDY_OFFSET>>2] , dp * m );
        }
      }
+#if defined(__sgi__) || defined(IRIX)
+     gc->hwDep.sst1Dep.irixRenderPending = FXTRUE;
+#endif
      P6FENCE_CMD( GR_SET( hw->triangleCMD, 0xFFFFFFFF) );
-     
+
      GR_SETF(hw->FvB.x,a->x + _GlideRoot.pool.fHalf);
      GR_SETF(hw->FvB.y,a->y);
      P6FENCE_CMD( GR_SET( hw->triangleCMD, 1) );
